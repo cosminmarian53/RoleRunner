@@ -49,50 +49,48 @@ Convert the provided resume text into a strictly formatted JSON object matching 
   },
   "summary": "Professional summary...",
   "skills": {
-    "languages": ["Python", "TypeScript"],
-    "frameworks": ["FastAPI", "React"],
-    "tools": ["Docker", "Git"]
+    "core_competencies": ["Skill 1", "Skill 2"],
+    "tools_software": ["Tool 1", "Tool 2"]
   },
   "experience": [
     {
-      "company": "Company Name",
-      "title": "Job Title",
+      "company": "Organization / Company Name",
+      "title": "Job Title / Role",
       "duration": "2020 - Present",
-      "location": "Remote",
+      "location": "City, Country or Remote",
       "bullets": ["Achievement 1", "Achievement 2"]
     }
   ],
   "education": [
     {
-      "institution": "University Name",
-      "degree": "B.S. in Computer Science",
+      "institution": "University / Institution Name",
+      "degree": "Degree / Qualification Title",
       "year": "2019",
-      "details": "Honors / GPA if mentioned"
+      "details": "Honors / Major / GPA if mentioned"
     }
   ],
   "certifications": [
     {
-      "name": "Cert Name",
-      "issuer": "Issuer",
-      "date": "2021"
+      "name": "Certificate / License Name",
+      "issuer": "Issuing Body",
+      "date": "2022"
     }
   ],
   "projects": [
     {
-      "name": "Project Name",
-      "tech": "Tech stack",
-      "description": "Short description"
+      "name": "Project / Initiative Name",
+      "description": "Brief description of project impact",
+      "tech": "Tools / Methods used"
     }
   ],
-  "languages": [
-    {
-      "language": "English",
-      "level": "Fluent"
-    }
-  ],
-  "achievements": ["Award or milestone 1"]
+  "languages": ["English (Native)", "Spanish (Fluent)"],
+  "achievements": ["Key Award / Career Milestone"]
 }
-Output ONLY raw valid JSON with no markdown backticks, explanations, or think tags."""
+
+STRICT RULES:
+1. Output ONLY valid, parsable JSON without explanation or markdown backticks.
+2. Extract truth factually from the resume text without hallucination.
+3. If a field is not present in the resume, use empty string "" or empty list [] or empty dict {}."""
 
 
 class ProfileService:
@@ -539,7 +537,7 @@ def is_section_heading(line: str) -> str | None:
 
 
 def parse_skills_section(lines: list[str], full_text: str) -> dict[str, list[str]]:
-    """Parse categorized and inline skill items."""
+    """Parse categorized and inline skill items for any industry or profession."""
     grouped: dict[str, list[str]] = {}
     for line in lines:
         if ":" in line:
@@ -556,30 +554,22 @@ def parse_skills_section(lines: list[str], full_text: str) -> dict[str, list[str
     if grouped:
         return {k: unique_strings(v) for k, v in grouped.items() if v}
 
-    common_skills = [
-        "python",
-        "typescript",
-        "javascript",
-        "react",
-        "node.js",
-        "fastapi",
-        "django",
-        "postgres",
-        "postgresql",
-        "sql",
-        "aws",
-        "docker",
-        "kubernetes",
-        "solidity",
-        "rust",
-        "go",
-    ]
-    matches = [s for s in common_skills if re.search(rf"\b{re.escape(s)}\b", full_text, re.IGNORECASE)]
-    return {"general": matches} if matches else {}
+    # If no explicit skills lines, extract non-trivial keywords from the skills block
+    extracted_tokens: list[str] = []
+    for line in lines:
+        cleaned_line = line.strip(" \t•-*|")
+        if cleaned_line and len(cleaned_line) > 2:
+            extracted_tokens.extend(
+                [item.strip() for item in re.split(r"[,;|•]", cleaned_line) if len(item.strip()) > 1]
+            )
+
+    if extracted_tokens:
+        return {"general": unique_strings(extracted_tokens)}
+    return {}
 
 
 def parse_experience_section(lines: list[str]) -> list[Experience]:
-    """Parse roles, companies, durations, locations, and achievement bullets."""
+    """Parse roles, companies, durations, locations, and achievement bullets for any career field."""
     entries: list[Experience] = []
     curr_title = ""
     curr_company = ""
@@ -592,7 +582,7 @@ def parse_experience_section(lines: list[str]) -> list[Experience]:
         if curr_title or curr_company:
             entries.append(
                 Experience(
-                    title=curr_title or "Engineer",
+                    title=curr_title or "Professional",
                     company=curr_company,
                     duration=curr_duration,
                     location=curr_location,
@@ -604,6 +594,58 @@ def parse_experience_section(lines: list[str]) -> list[Experience]:
         curr_duration = ""
         curr_location = ""
         curr_bullets = []
+
+    role_title_markers = [
+        "manager",
+        "director",
+        "specialist",
+        "coordinator",
+        "representative",
+        "nurse",
+        "accountant",
+        "analyst",
+        "developer",
+        "engineer",
+        "designer",
+        "consultant",
+        "officer",
+        "assistant",
+        "associate",
+        "executive",
+        "lead",
+        "head",
+        "teacher",
+        "practitioner",
+        "researcher",
+        "auditor",
+        "doctor",
+        "therapist",
+        "recruiter",
+        "strategist",
+        "producer",
+        "editor",
+        "writer",
+        "architect",
+        "attorney",
+        "counsel",
+        "paralegal",
+        "administrator",
+        "advisor",
+        "agent",
+        "technician",
+        "operator",
+        "supervisor",
+        "intern",
+        "fellow",
+        "chef",
+        "pilot",
+        "driver",
+        "partner",
+        "founder",
+        "officer",
+        "worker",
+        "specialist",
+    ]
 
     for line in lines:
         if "|" in line:
@@ -617,7 +659,9 @@ def parse_experience_section(lines: list[str]) -> list[Experience]:
             curr_title = parts[0].strip()
             curr_company = parts[1].strip() if len(parts) > 1 else ""
         elif (
-            any(marker in line.lower() for marker in ["present", "2024", "2025", "2026", "2023", "2022"])
+            any(
+                marker in line.lower() for marker in ["present", "2024", "2025", "2026", "2023", "2022", "2021", "2020"]
+            )
             and ("•" in line or "–" in line or "-" in line)
             and not line.startswith(("•", "-", "*"))
         ):
@@ -628,19 +672,7 @@ def parse_experience_section(lines: list[str]) -> list[Experience]:
             else:
                 curr_duration = line
         elif (
-            any(
-                m in line.lower()
-                for m in [
-                    "engineer",
-                    "researcher",
-                    "participant",
-                    "auditor",
-                    "developer",
-                    "manager",
-                    "lead",
-                    "consultant",
-                ]
-            )
+            any(m in line.lower() for m in role_title_markers)
             and not line.startswith(("•", "-", "*"))
             and len(line.split()) <= 6
         ):

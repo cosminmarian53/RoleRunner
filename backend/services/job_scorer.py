@@ -114,12 +114,15 @@ STOP_WORDS: set[str] = {
     "month",
     "months",
     "year",
+    "skills",
+    "skill",
+    "skilled",
 }
 
 
 def normalize_term(term: str) -> str:
     """Normalize skill or keyword term by stripping punctuation and lowercasing."""
-    cleaned = re.sub(r"[^\w\s+#.-]", "", term.strip().lower())
+    cleaned = re.sub(r"[^\w\s+#./-]", "", term.strip().lower())
     cleaned = re.sub(r"\s+", " ", cleaned)
     # Singularize common plural endings for single-word skills (e.g. contracts -> contract)
     if cleaned.endswith("contracts"):
@@ -246,19 +249,21 @@ def extract_keywords_from_job(job_text: str, candidate_vocab: set[str] | None = 
             if re.search(pattern, job_text_lower):
                 extracted.add(skill)
 
-    # 2. Extract capitalized acronyms / technical identifiers
-    raw_tokens = re.findall(r"\b[A-Z0-9+#.-]{2,15}\b", job_text)
+    # 2. Extract acronyms / compound tokens (e.g. CI/CD, AWS, SEO, PMP)
+    raw_tokens = re.findall(r"\b[a-zA-Z0-9+#./-]{2,15}\b", job_text)
     for token in raw_tokens:
         tok_norm = normalize_term(token)
-        if tok_norm and tok_norm not in STOP_WORDS and len(tok_norm) > 1:
-            extracted.add(tok_norm)
+        if "/" in token or token.isupper() or (candidate_vocab and tok_norm in candidate_vocab):
+            if tok_norm and tok_norm not in STOP_WORDS and len(tok_norm) > 1:
+                extracted.add(tok_norm)
 
-    # 3. Extract common technical word tokens (length >= 3)
-    words = re.findall(r"\b[a-zA-Z0-9+#.-]{3,20}\b", job_text)
+    # 3. Extract word tokens (length >= 3)
+    words = re.findall(r"\b[a-zA-Z0-9+#./-]{3,20}\b", job_text)
     for w in words:
         w_norm = normalize_term(w)
-        if candidate_vocab and w_norm in candidate_vocab:
-            extracted.add(w_norm)
+        if w_norm and w_norm not in STOP_WORDS and len(w_norm) > 2:
+            if candidate_vocab is None or w_norm in candidate_vocab:
+                extracted.add(w_norm)
 
     return extracted
 
@@ -278,25 +283,25 @@ class JobMatchScore:
 
 
 class JobScorer:
-    """Calculates deterministic ATS keyword match score and actionable recommendations."""
+    """Scores candidate CVs and profile keywords against job listings dynamically."""
 
-    @staticmethod
-    def score_cv_against_job(cv_text: str, job_text: str) -> CVScoreResult:
-        """Score CV document text against job description keywords (0 to 100 percentage scale)."""
-        cv_tokens = {normalize_term(w) for w in re.findall(r"\b[a-zA-Z0-9+#.-]{2,}\b", cv_text)} - STOP_WORDS
-        job_keywords = extract_keywords_from_job(job_text, candidate_vocab=cv_tokens)
+    @classmethod
+    def score_cv_against_job(cls, cv_text: str, job_description: str) -> CVScoreResult:
+        """Score CV text against job description by extracting dynamic keywords from both."""
+        job_keywords = extract_keywords_from_job(job_description)
+        cv_keywords = extract_keywords_from_job(cv_text)
 
         if not job_keywords:
             return CVScoreResult(
                 overall_score=50,
                 keyword_match_pct=0.0,
-                matched_keywords=list(cv_tokens)[:10],
+                matched_keywords=list(cv_keywords),
                 missing_keywords=[],
-                improvement_suggestions=["Job description had minimal detectable technical keywords."],
+                improvement_suggestions=["Job description had minimal detectable keywords."],
             )
 
-        matched = sorted(list(job_keywords.intersection(cv_tokens)))
-        missing = sorted(list(job_keywords - cv_tokens))
+        matched = sorted(list(job_keywords & cv_keywords))
+        missing = sorted(list(job_keywords - cv_keywords))
 
         match_ratio = len(matched) / len(job_keywords)
         keyword_pct = round(match_ratio * 100, 1)
@@ -330,7 +335,7 @@ class JobScorer:
     ) -> JobMatchScore:
         """
         High-performance in-memory scoring on a 0.0 to 10.0 scale, driven dynamically
-        by the user's specific candidate profile vocabulary.
+        by the user's specific candidate profile vocabulary for any profession.
 
         - If 0 candidate skills match: returns 0.0 (WEAK_MATCH).
         - If skills match: incorporates skill density and title alignment into 0.0 - 10.0 score.
@@ -369,27 +374,28 @@ class JobScorer:
         # 2. Title Alignment Bonus
         title_bonus = 0.0
         title_lower = f" {job_title.lower()} " if job_title else ""
-        if title_lower and candidate_title_keywords:
+        if title_lower:
+            check_title_vocab = candidate_title_keywords if candidate_title_keywords else candidate_keywords
             matched_title_terms = [
-                t for t in candidate_title_keywords if re.search(rf"(?:\b|\W){re.escape(t)}(?:\b|\W)", title_lower)
+                t
+                for t in check_title_vocab
+                if len(t) > 2 and re.search(rf"(?:\b|\W){re.escape(t)}(?:\b|\W)", title_lower)
             ]
             if matched_title_terms:
                 title_bonus = min(3.0, len(matched_title_terms) * 1.5)
 
         # 3. Calculate dynamic skill match score
-        # Base score scales with number of matched distinct skills
-        # 1 match -> ~2.5-3.5, 2-3 matches -> ~5.0-7.0, 4+ matches -> ~8.0-10.0
         match_count = len(matched_skills)
         if match_count >= 5:
-            base_score = 7.5
+            base_score = 9.0
         elif match_count == 4:
-            base_score = 6.5
+            base_score = 8.0
         elif match_count == 3:
-            base_score = 5.5
+            base_score = 6.5
         elif match_count == 2:
-            base_score = 4.0
+            base_score = 5.0
         else:
-            base_score = 2.5
+            base_score = 3.5
 
         raw_score = base_score + title_bonus
         final_score = round(max(0.0, min(10.0, raw_score)), 1)

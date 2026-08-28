@@ -20,7 +20,7 @@ def generate_deterministic_cv_markdown(
 
     # 1. Header & Title
     name = profile.personal_info.name or "Candidate"
-    target_role = job_title or "Software Professional"
+    target_role = job_title or "Professional"
     lines.append(f"# {name}")
     lines.append(f"**{target_role}**")
     lines.append("")
@@ -61,10 +61,10 @@ def generate_deterministic_cv_markdown(
             lines.append(f"- {ach.strip()}")
         lines.append("")
 
-    # 3. Technical Skills
+    # 3. Core Skills & Competencies
     skills_map = profile.skills or getattr(profile, "technical_skills", {})
     if skills_map:
-        lines.append("## Technical Skills")
+        lines.append("## Core Skills & Competencies")
         for cat, items in skills_map.items():
             if items:
                 lines.append(f"- **{cat}:** {', '.join(items)}")
@@ -132,7 +132,7 @@ class CVGenerator:
         if not use_ai:
             return generate_deterministic_cv_markdown(profile, job_title, company)
 
-        prompt = f"""You are an expert technical career strategist and resume writer.
+        prompt = f"""You are an expert career strategist and professional resume writer.
 Given the candidate's master profile and the target job description, generate a tailored, professional single-column ATS-friendly CV in Markdown.
 
 STRICT REQUIREMENTS:
@@ -148,15 +148,15 @@ STRICT REQUIREMENTS:
    ## Key Achievements
    - [Bulleted achievements with metrics]
 
-   ## Technical Skills
+   ## Core Skills & Competencies
    - **[Category]:** [Comma separated skills]
 
    ## Experience
    ### [Title] | [Company] | [Date Range]
    - [Relevant action-oriented achievement bullets]
 
-   ## Projects
-   ### [Project Name] ([Tech])
+   ## Projects & Key Initiatives
+   ### [Project/Initiative Name]
    - [Bulleted details]
 
    ## Education & Certifications

@@ -41,7 +41,7 @@ export default function JobSearch() {
   return (
     <div className="page"><div className="page-header"><div><p className="eyebrow">Opportunity discovery</p><h1>Job search</h1><p>Search career pages and job boards, then rank results against your profile.</p></div></div>
       <form className="panel search-form" onSubmit={search}>
-        <label className="grow">Role or keywords<input required value={form.query} onChange={(event) => update("query", event.target.value)} placeholder="Smart contract security engineer" /></label>
+        <label className="grow">Type your job name or role<input required value={form.query} onChange={(event) => update("query", event.target.value)} placeholder="e.g. Marketing Manager, Nurse, Software Engineer, Project Lead" /></label>
         <label>Location<input value={form.location_filter} onChange={(event) => update("location_filter", event.target.value)} placeholder="Europe" /></label>
         <label>Date posted
           <select value={form.date_posted_filter} onChange={(event) => update("date_posted_filter", event.target.value)}>

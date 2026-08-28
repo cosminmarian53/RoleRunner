@@ -77,7 +77,7 @@ def test_generate_deterministic_cv_markdown_structure(sample_profile: CandidateP
     assert "cosmin@test.com" in md
     assert "## Key Achievements" in md
     assert "Achieved 3rd Place in Kuru Contracts" in md
-    assert "## Technical Skills" in md
+    assert "## Core Skills & Competencies" in md
     assert "**Languages:** Rust, Solidity, Python" in md
     assert "## Experience" in md
     assert "Independent Security Researcher | Cantina & CodeHawks" in md
