@@ -37,8 +37,15 @@ h3 { font-size: 15px; letter-spacing: 0; }
 .brand-row { height: 76px; display: flex; align-items: center; gap: 11px; padding: 16px; border-bottom: 1px solid var(--border); }
 .brand-row > div:nth-child(2) { display: grid; gap: 2px; }
 .brand-row span { color: var(--muted); font-size: 11px; }
-.brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 7px; background: var(--accent-strong); color: white; font-weight: 700; }
+.brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 7px; background: var(--accent-strong); color: white; font-weight: 700; overflow: hidden; }
+.brand-mark.logo-container { background: #182838; border: 1px solid #2d5578; }
+.brand-logo-img { width: 28px; height: 28px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(90, 169, 230, 0.35)); }
+.auth-logo-img { width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(90, 169, 230, 0.45)); }
+.mobile-brand { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.mobile-logo-img { width: 24px; height: 24px; object-fit: contain; }
 .brand-mark.large { width: 48px; height: 48px; margin-bottom: 22px; }
+.brand-mark.large.logo-container { background: #182838; border: 1px solid #2d5578; }
+.provider-connected-box { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .sidebar nav { padding: 14px 10px; display: grid; gap: 4px; }
 .sidebar nav a { display: flex; align-items: center; gap: 11px; min-height: 42px; padding: 0 12px; border-radius: 6px; color: var(--muted); font-size: 14px; font-weight: 500; }
 .sidebar nav a:hover { background: var(--surface-2); color: var(--text); }
@@ -201,6 +208,37 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   .inline-form { grid-template-columns: 1fr; }
 }
 
+.card-actions { display: flex; align-items: center; gap: 8px; }
+.intel-btn { border-color: #3b5a7a; color: #8ec4eb; }
+.intel-btn:hover { background: #1d3347; }
+
+/* AI Job Intelligence Modal */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.78); backdrop-filter: blur(5px); z-index: 50; display: grid; place-items: center; padding: 20px; overflow-y: auto; }
+.intel-modal { width: min(840px, 100%); max-height: 90vh; display: flex; flex-direction: column; background: #14171a; border: 1px solid #303740; border-radius: 12px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.7); overflow: hidden; }
+.intel-modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 22px 24px; border-bottom: 1px solid var(--border); background: #181c20; }
+.intel-header-title h2 { margin: 0 0 6px; font-size: 19px; }
+.intel-header-title .company-meta { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: 13px; }
+.intel-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 20px; background: rgba(90, 169, 230, 0.15); border: 1px solid rgba(90, 169, 230, 0.4); color: #8ec4eb; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
+.intel-modal-body { padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+.intel-loading-state { text-align: center; padding: 48px 24px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.intel-loading-state h3 { margin: 0; font-size: 17px; }
+.intel-sections { display: flex; flex-direction: column; gap: 16px; }
+.intel-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; }
+.intel-card.highlight-card { border-color: #325a7c; background: #15222e; }
+.intel-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--accent); }
+.intel-card-header h3 { margin: 0; font-size: 15px; color: var(--text); flex: 1; }
+.intel-text { margin: 0; line-height: 1.6; color: #d0d7de; font-size: 13.5px; }
+.culture-chip-box { margin-top: 10px; padding: 8px 12px; border-radius: 6px; background: #1b2025; font-size: 12px; color: #b0b8c0; border: 1px solid #282f36; }
+.culture-label { color: #8ec4eb; font-weight: 600; margin-right: 6px; }
+.stages-timeline { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.stage-item { display: flex; gap: 12px; align-items: flex-start; }
+.stage-index { width: 22px; height: 22px; border-radius: 50%; background: #233b52; border: 1px solid #3c658a; color: #8ec4eb; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; margin-top: 1px; }
+.stage-content p { margin: 0; font-size: 13px; line-height: 1.5; color: #c4ccd4; }
+.intel-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; color: #d0d7de; font-size: 13px; line-height: 1.5; }
+.intel-list.questions li { font-style: italic; color: #9eccf0; }
+.small-btn { width: 28px; height: 28px; }
+.intel-modal-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--border); background: #181c20; }
+
 @media (max-width: 480px) {
   .page-header { flex-direction: column; margin-bottom: 24px; }
   .page-header .button { width: 100%; }
@@ -210,4 +248,6 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   .search-form { grid-template-columns: 1fr; }
   .search-form > * { grid-column: 1 !important; }
   .auth-panel { padding: 24px; }
+  .intel-modal { max-height: 95vh; }
+  .intel-modal-header, .intel-modal-body, .intel-modal-footer { padding: 16px; }
 }

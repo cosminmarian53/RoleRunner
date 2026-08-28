@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, Copy, ExternalLink, LoaderCircle, LogIn } from "lucide-react";
+import { Bot, CheckCircle2, Copy, ExternalLink, LoaderCircle, LogIn, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { api } from "../lib/api";
@@ -11,7 +11,7 @@ export default function ProviderStatus({ compact = false }) {
 
   const checkStatus = async () => {
     try {
-      setStatus(await api("/agent/provider-status"));
+      setStatus(await api("/agent/provider/status"));
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -41,7 +41,21 @@ export default function ProviderStatus({ compact = false }) {
     setBusy(true);
     setError("");
     try {
-      setAuth(await api("/agent/login", { method: "POST" }));
+      setAuth(await api("/agent/login/start", { method: "POST" }));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disconnectProvider = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/agent/disconnect", { method: "POST" });
+      setStatus({ authenticated: false, provider: "codex" });
+      setAuth(null);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -68,7 +82,13 @@ export default function ProviderStatus({ compact = false }) {
         <Bot size={20} />
       </div>
       {status?.authenticated ? (
-        <div className="inline-status success"><CheckCircle2 size={17} /> Ready for searches and CV generation</div>
+        <div className="provider-connected-box">
+          <div className="inline-status success"><CheckCircle2 size={17} /> Ready for searches and CV generation</div>
+          <button className="button secondary small disconnect-btn" onClick={disconnectProvider} disabled={busy}>
+            {busy ? <LoaderCircle className="spin" size={15} /> : <LogOut size={15} />}
+            Disconnect session
+          </button>
+        </div>
       ) : (
         <>
           <p className="muted">Connect your Codex session to enable AI-assisted workflows.</p>
@@ -90,6 +110,9 @@ export default function ProviderStatus({ compact = false }) {
               Open sign in <ExternalLink size={15} />
             </a>
           )}
+          <button className="button ghost small" onClick={() => setAuth(null)} style={{ marginLeft: "auto" }}>
+            Cancel
+          </button>
         </div>
       )}
       {error && <p className="form-error">{error}</p>}

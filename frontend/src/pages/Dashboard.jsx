@@ -1,13 +1,16 @@
-import { ArrowRight, BriefcaseBusiness, FileText, Search, UserRound } from "lucide-react";
+import { ArrowRight, BriefcaseBusiness, FileText, Lightbulb, Search, UserRound } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
+import JobIntelModal from "../components/JobIntelModal";
 import ProviderStatus from "../components/ProviderStatus";
 import { useApi } from "../hooks/useApi";
 
 export default function Dashboard() {
   const profile = useApi("/profile");
-  const jobs = useApi("/jobs/results");
+  const jobs = useApi("/jobs");
   const applications = useApi("/applications");
+  const [selectedJobIntel, setSelectedJobIntel] = useState(null);
   const appList = Array.isArray(applications.data) ? applications.data : applications.data?.applications || [];
 
   return (
@@ -30,12 +33,26 @@ export default function Dashboard() {
         <ProviderStatus />
       </div>
       <section className="panel">
-        <div className="panel-heading"><div><p className="eyebrow">Latest search</p><h2>{jobs.data?.query || "No search run"}</h2></div><Link className="button secondary" to="/jobs">Search jobs</Link></div>
+        <div className="panel-heading"><div><p className="eyebrow">Latest search</p><h2>{jobs.data?.query || "Saved opportunities"}</h2></div><Link className="button secondary" to="/jobs">Search jobs</Link></div>
         <div className="list-rows">
-          {(jobs.data?.jobs || []).slice(0, 4).map((job) => <div className="list-row" key={job.id || job.link}><div><strong>{job.title}</strong><span>{job.company} · {job.location || "Location not listed"}</span></div>{job.relevance_score != null && <span className="score">{job.relevance_score.toFixed(1)}</span>}</div>)}
+          {(jobs.data?.jobs || []).slice(0, 4).map((job) => (
+            <div className="list-row" key={job.id || job.link}>
+              <div>
+                <strong>{job.title}</strong>
+                <span>{job.company} · {job.location || "Location not listed"}</span>
+              </div>
+              <div className="card-actions">
+                <button className="button secondary small intel-btn" title="AI Strategic Framing" onClick={() => setSelectedJobIntel(job)}>
+                  <Lightbulb size={13} /> Intel
+                </button>
+                {job.relevance_score != null && <span className="score">{job.relevance_score.toFixed(1)}</span>}
+              </div>
+            </div>
+          ))}
           {!jobs.loading && !jobs.data?.jobs?.length && <p className="empty">Search results will appear here.</p>}
         </div>
       </section>
+      {selectedJobIntel && <JobIntelModal job={selectedJobIntel} onClose={() => setSelectedJobIntel(null)} />}
     </div>
   );
 }

@@ -1,11 +1,13 @@
-import { ExternalLink, LoaderCircle, Search, Sparkles } from "lucide-react";
+import { ExternalLink, Lightbulb, LoaderCircle, Search, Sparkles } from "lucide-react";
 import { useState } from "react";
 
+import JobIntelModal from "../components/JobIntelModal";
 import { api } from "../lib/api";
 
 export default function JobSearch() {
   const [form, setForm] = useState({ query: "", target_companies: "", location_filter: "", remote_only: false, limit: 20 });
   const [results, setResults] = useState(null);
+  const [selectedJobIntel, setSelectedJobIntel] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -18,7 +20,15 @@ export default function JobSearch() {
   };
   const scoreAll = async () => {
     setBusy(true); setError("");
-    try { setResults(await api("/jobs/score-all", { method: "POST" })); } catch (requestError) { setError(requestError.message); } finally { setBusy(false); }
+    try {
+      const payload = results?.jobs?.length ? { jobs: results.jobs } : {};
+      const res = await api("/jobs/score-all", { method: "POST", body: JSON.stringify(payload) });
+      setResults(res);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -39,10 +49,19 @@ export default function JobSearch() {
           <h3>{job.title}</h3><p className="company">{job.company || "Company not listed"}</p><p className="muted">{job.location || "Location not listed"}{job.date_posted ? ` · ${job.date_posted}` : ""}</p>
           <p className="job-summary">{job.summary || "Open the listing to review the full description."}</p>
           {!!job.match_reasons?.length && <div className="reason-list">{job.match_reasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>}
-          <div className="job-footer">{job.recommendation && <span className="recommendation">{job.recommendation.replaceAll("_", " ")}</span>}<a className="icon-button" title="Open job listing" href={job.link} target="_blank" rel="noreferrer"><ExternalLink size={17} /></a></div>
+          <div className="job-footer">
+            {job.recommendation && <span className="recommendation">{job.recommendation.replaceAll("_", " ")}</span>}
+            <div className="card-actions">
+              <button className="button secondary small intel-btn" title="AI Strategic Framing & Intel" onClick={() => setSelectedJobIntel(job)}>
+                <Lightbulb size={14} /> AI Intel
+              </button>
+              <a className="icon-button" title="Open job listing" href={job.link} target="_blank" rel="noreferrer"><ExternalLink size={17} /></a>
+            </div>
+          </div>
         </article>)}
         {!busy && !results?.jobs?.length && <div className="empty-state"><Search size={26} /><h2>No results yet</h2><p>Run a search to collect matching roles.</p></div>}
       </section>
+      {selectedJobIntel && <JobIntelModal job={selectedJobIntel} onClose={() => setSelectedJobIntel(null)} />}
     </div>
   );
 }
