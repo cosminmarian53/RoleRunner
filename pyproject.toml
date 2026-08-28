@@ -1,7 +1,7 @@
 [project]
-name = "job-bot"
+name = "rolerunner"
 version = "0.1.0"
-description = "AI-powered job scouting, CV generation, and application orchestration agent"
+description = "RoleRunner — Autonomous AI job scouting, ATS-tailored CV generation, and application orchestration platform"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

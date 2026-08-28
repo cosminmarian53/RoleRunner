@@ -19,10 +19,14 @@ venv/
 .env.*.local
 
 # Data & credentials (sensitive)
+data/*.db
 data/credentials/
 data/profiles/
 data/jobs/
 data/exports/
+data/resumes/
+data/operations/
+data/applications/
 
 # Node / Frontend
 node_modules/

@@ -3,7 +3,7 @@
 # Default target
 help:
 	@echo "========================================================================"
-	@echo " Job-Bot Development Commands"
+	@echo " RoleRunner Development Commands"
 	@echo "========================================================================"
 	@echo "  make install        Install backend & frontend dependencies + git hooks"
 	@echo "  make check          Run linters, type checks, and tests"
