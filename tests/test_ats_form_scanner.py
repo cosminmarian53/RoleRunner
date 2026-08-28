@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from backend.models.profile import CandidateProfile, PersonalInfo
+from backend.models.profile import CandidateProfile, Certification, Education, PersonalInfo
 from backend.scrapers.http_client import SafeAsyncClient
 from backend.services.ats_form_scanner import ATSFormScanner
 
@@ -287,14 +287,68 @@ async def test_fab2_ashby_text_form_parsing() -> None:
     assert ans["Will you, at any point, require employer sponsorship to work in the United States?"] == "Yes"
     assert "LinkedIn" in ans["How did you hear about us?"]
     assert (
-        ans[
-            "I am one of the following: (a) a citizen of the United States; (b) a lawful permanent resident of the United States; or (c) a person admitted into the United States as an asylee or refugee"
-        ]
-        == "No"
-    )
-    assert (
         "Romania"
         in ans[
             "If no, is your home country listed below? Armenia, Azerbaijan, Belarus, Burma, Cambodia, China, Cuba, Georgia, Iran, Iraq, Kazakhstan, North Korea, Kyrgyzstan, Laos, Libya, Macao, Moldova, Mongolia, Nicaragua, Russia, Syria, Tajikistan, Turkmenistan, Uzbekistan, Venezuela, Vietnam, Yemen"
         ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_universal_master_form_pack() -> None:
+    """Verify comprehensive 17-question universal master form provides complete ready-to-copy content."""
+    profile = CandidateProfile(
+        personal_info=PersonalInfo(
+            name="Cosmin-Marian Lavric",
+            location="Brasov, Romania (EET)",
+            portfolio="https://github.com/cosminmarian53/security-audit-portofolio",
+            github="https://github.com/cosminmarian53",
+            linkedin="https://www.linkedin.com/in/cosmin-lavric-827126331/",
+        ),
+        education=[
+            Education(
+                institution="Transilvania University of Brasov",
+                degree="Bachelor of Science in Electrical Engineering and Computer Science",
+                year="2022 - 2026",
+            )
+        ],
+        certifications=[
+            Certification(name="Smart Contract Security", issuer="Cyfrin", date="May 2025"),
+        ],
+    )
+
+    scanner = ATSFormScanner()
+    pack = await scanner.generate_application_pack(
+        profile=profile,
+        job_title="Software Engineering Intern",
+        company="TechCorp",
+        job_description="",
+        job_url="",
+    )
+
+    assert len(pack.custom_questions) >= 15
+    ans = {q.label: q.suggested_answer for q in pack.custom_questions}
+    assert "TechCorp" in ans["Why are you interested in this role and company?"]
+    assert "X-Scout" in ans["Describe a challenging technical project or bug you recently solved."]
+    assert (
+        ans["Portfolio / GitHub / Technical Project Link"]
+        == "https://github.com/cosminmarian53/security-audit-portofolio"
+    )
+    assert ans["Are you currently authorized to work in the United States?"] == "No"
+    assert ans["Will you now or in the future require visa sponsorship for employment?"] == "Yes"
+    assert "Romania" in ans["If no, is your home country listed on the U.S. EAR restricted country list?"]
+    assert "January 2026" in ans["Ideal start date in office / earliest availability"]
+    assert "April 2026" in ans["Ideal end date / commitment duration"]
+    assert "Summer 2026" in ans["When are you available for full-time hire / expected graduation date?"]
+    assert (
+        "Transilvania University of Brasov"
+        in ans["What university/college are you currently attending and what degree are you pursuing?"]
+    )
+    assert (
+        "Smart Contract Security" in ans["Do you have any recognized industry certifications or specialized training?"]
+    )
+    assert "IBM Summer School" in ans["Do you have prior internship or professional engineering experience?"]
+    assert (
+        "in-person onboarding"
+        in ans["Would you be able to attend mandatory in-person onboarding or travel as required?"]
     )

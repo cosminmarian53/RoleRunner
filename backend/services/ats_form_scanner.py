@@ -241,8 +241,9 @@ class ATSFormScanner:
         return fields[:20]
 
     def _default_standard_questions(self) -> list[ApplicationFormField]:
-        """Sensible default employer questions when page is dynamic or blocked."""
+        """Comprehensive general master form based on the most commonly asked application questions."""
         return [
+            # 1. Motivation & Technical Experience
             ApplicationFormField(
                 field_id="why_company",
                 label="Why are you interested in this role and company?",
@@ -255,16 +256,105 @@ class ATSFormScanner:
                 field_type="textarea",
                 required=True,
             ),
+            # 2. Portfolio & Work Samples
             ApplicationFormField(
-                field_id="work_authorization",
-                label="Are you legally authorized to work in the country/location for this role?",
+                field_id="portfolio_link",
+                label="Portfolio / GitHub / Technical Project Link",
+                field_type="text",
+                required=False,
+            ),
+            ApplicationFormField(
+                field_id="portfolio_included",
+                label="Have you included a portfolio or technical work samples with your application?",
                 field_type="select",
-                options=["Yes", "No", "Require Sponsorship"],
+                options=["Yes", "No"],
+                required=False,
+            ),
+            # 3. Work Authorization & Immigration
+            ApplicationFormField(
+                field_id="work_authorization_us",
+                label="Are you currently authorized to work in the United States?",
+                field_type="select",
+                options=["Yes", "No"],
                 required=True,
             ),
             ApplicationFormField(
-                field_id="start_date",
-                label="What is your earliest possible start date or availability?",
+                field_id="visa_sponsorship",
+                label="Will you now or in the future require visa sponsorship for employment?",
+                field_type="select",
+                options=["Yes", "No"],
+                required=True,
+            ),
+            ApplicationFormField(
+                field_id="export_control_us_person",
+                label="I am one of the following: (a) a citizen of the United States; (b) a lawful permanent resident of the United States; or (c) a person admitted into the United States as an asylee or refugee",
+                field_type="select",
+                options=["Yes", "No"],
+                required=True,
+            ),
+            ApplicationFormField(
+                field_id="restricted_country_check",
+                label="If no, is your home country listed on the U.S. EAR restricted country list?",
+                field_type="select",
+                options=["Yes", "No"],
+                required=False,
+            ),
+            # 4. Timeline & Schedule
+            ApplicationFormField(
+                field_id="ideal_start_date",
+                label="Ideal start date in office / earliest availability",
+                field_type="text",
+                required=False,
+            ),
+            ApplicationFormField(
+                field_id="ideal_end_date",
+                label="Ideal end date / commitment duration",
+                field_type="text",
+                required=False,
+            ),
+            ApplicationFormField(
+                field_id="full_time_hire_timeline",
+                label="When are you available for full-time hire / expected graduation date?",
+                field_type="text",
+                required=False,
+            ),
+            ApplicationFormField(
+                field_id="schedule_commitment",
+                label="Are you able to commit to the required weekly schedule (e.g. 25–40 hrs/week)?",
+                field_type="select",
+                options=["Yes", "No"],
+                required=False,
+            ),
+            # 5. Education & Background
+            ApplicationFormField(
+                field_id="education_degree",
+                label="What university/college are you currently attending and what degree are you pursuing?",
+                field_type="text",
+                required=False,
+            ),
+            ApplicationFormField(
+                field_id="certifications_credentials",
+                label="Do you have any recognized industry certifications or specialized training?",
+                field_type="textarea",
+                required=False,
+            ),
+            ApplicationFormField(
+                field_id="prior_internship_experience",
+                label="Do you have prior internship or professional engineering experience?",
+                field_type="textarea",
+                required=False,
+            ),
+            # 6. Logistics & Referral
+            ApplicationFormField(
+                field_id="in_person_onboarding_travel",
+                label="Would you be able to attend mandatory in-person onboarding or travel as required?",
+                field_type="select",
+                options=["Yes", "No"],
+                required=False,
+            ),
+            ApplicationFormField(
+                field_id="referral_source",
+                label="How did you hear about this opportunity?",
                 field_type="text",
                 required=False,
             ),
@@ -607,6 +697,13 @@ class ATSFormScanner:
                     q.suggested_answer = "Yes"
 
             # 13. Education & University Fields
+            elif bool(
+                re.search(
+                    r"\b(university.*attending|college.*attending|what university|what college|degree.*pursuing|currently attending|education.*background)\b",
+                    lbl,
+                )
+            ):
+                q.suggested_answer = f"{facts['degree']} at {facts['school']}"
             elif bool(
                 re.search(
                     r"\b(your school|university name|college name|institution name|attended school|school/university)\b|^(?:school|university|college)$",
