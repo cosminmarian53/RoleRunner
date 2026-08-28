@@ -67,6 +67,7 @@ async def get_application(
 
 
 @router.patch("/{app_id}", response_model=ApplicationRecord)
+@router.put("/{app_id}", response_model=ApplicationRecord)
 async def update_application(
     app_id: str,
     request: ApplicationUpdateRequest,

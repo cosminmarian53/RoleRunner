@@ -223,9 +223,8 @@ STOP_WORDS: set[str] = {
 
 def normalize_term(term: str) -> str:
     """Normalize skill or keyword term by stripping punctuation and lowercasing."""
-    raw = term.strip().lower()
-    cleaned = re.sub(r"^[./\-_#+]+|[./\-_#+]+$", "", raw)
-    cleaned = re.sub(r"[^\w\s+#./-]", "", cleaned)
+    raw = term.strip().lower().strip("./-_ \t\n")
+    cleaned = re.sub(r"[^\w\s+#./-]", "", raw)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if cleaned.endswith("contracts"):
         cleaned = cleaned[:-1]

@@ -185,6 +185,8 @@ async def get_agent_provider_status(
 ) -> dict[str, Any]:
     """Get provider details and credential state for UI indicator, restoring from DB if needed."""
     await _restore_codex_auth_from_db(current_user.id, session)
+    harness = get_harness(user_id=current_user.id)
+    await harness.refresh_auth_status()
     return get_provider_status(user_id=current_user.id)
 
 
