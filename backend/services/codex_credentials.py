@@ -86,6 +86,28 @@ class CodexCredentialsManager:
             return True
         return False
 
+    def read_auth_json(self, user_id: str | UUID) -> str | None:
+        """Read the raw auth.json content for a tenant if it exists."""
+        user_dir = self.get_user_codex_home(user_id)
+        auth_file = user_dir / "auth.json"
+        if auth_file.exists() and auth_file.is_file():
+            try:
+                return auth_file.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning("Could not read auth.json for %s: %s", user_id, exc)
+        return None
+
+    def write_auth_json(self, user_id: str | UUID, auth_json_str: str) -> None:
+        """Write raw auth.json content for a tenant and enforce secure 0600 permissions."""
+        user_dir = self.get_user_codex_home(user_id)
+        auth_file = user_dir / "auth.json"
+        try:
+            auth_file.write_text(auth_json_str, encoding="utf-8")
+            auth_file.chmod(0o600)
+            logger.info("Restored/wrote Codex auth.json for user %s", user_id)
+        except OSError as exc:
+            logger.warning("Could not write auth.json for %s: %s", user_id, exc)
+
 
 _credentials_manager: CodexCredentialsManager | None = None
 
