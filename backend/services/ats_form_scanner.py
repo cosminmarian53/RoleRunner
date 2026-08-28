@@ -275,86 +275,138 @@ class ATSFormScanner:
         if not text:
             return []
 
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        # 1. If text contains an 'Application' or 'Apply for this role' section header, focus on the form section
+        app_split = re.split(
+            r"\n\s*(?:application|apply for this (?:job|role|position)|application form)\s*\n",
+            text,
+            flags=re.IGNORECASE,
+        )
+        form_text = app_split[-1] if len(app_split) > 1 else text
+
+        lines = [line.strip() for line in form_text.split("\n") if line.strip()]
         fields: list[ApplicationFormField] = []
         seen: set[str] = set()
 
-        noise_text_lines = {
+        noise_prefixes = (
             "autofill from resume",
-            "upload your resume here to autofill key application fields.",
+            "upload your resume",
+            "accepted file types",
+            "or drag and drop",
+            "attach",
+            "enter manually",
+            "overview",
+            "internship benefits",
+            "about the role",
+            "responsibilities",
+            "qualifications",
+            "what you will do",
+            "compensation",
+            "we take on",
+            "we build",
+            "you will own",
+            "this is an in-office",
+            "this position involves access",
+            "required - please",
+            "all interns at",
+            "annual range",
+            "equal opportunity",
+            "privacy policy",
+        )
+        noise_exact = {
             "name",
             "email",
             "resume",
             "first name",
             "last name",
             "phone",
-            "apply for this job",
-            "application",
-            "overview",
-            "intern",
-            "or drag and drop here",
-            "attach",
-            "enter manually",
-            "accepted file types: pdf, doc, docx, txt, rtf",
-            "required field",
+            "location",
             "select...",
             "select one",
             "select",
+            "other",
+            "yes",
+            "no",
+            "intern",
+            "application",
+            "u.s. export control questions",
+            "export control analysis",
+            "overview",
         }
 
         for line in lines:
-            lower = line.lower().strip()
-            if lower in noise_text_lines or len(lower) < 3:
+            clean = re.sub(r"[\s\*✱:]+$", "", line).strip()
+            lower = clean.lower()
+
+            if not clean or len(clean) < 3:
+                continue
+            if lower in noise_exact:
+                continue
+            if any(lower.startswith(prefix) for prefix in noise_prefixes):
                 continue
 
-            # Check if line is a question or prompt
+            # Skip multi-sentence descriptive paragraphs unless it is a legal declaration
+            if len(re.findall(r"\.\s+[A-Z]", clean)) >= 2 and not (
+                "i am one of the following" in lower or "if no" in lower or "if yes" in lower
+            ):
+                continue
+
+            # Check if line is a legitimate form question
             is_question = (
                 line.endswith("?")
                 or line.endswith(":")
                 or any(
-                    k in lower
+                    lower.startswith(k)
                     for k in [
+                        "do you",
+                        "are you",
+                        "will you",
+                        "have you",
+                        "would you",
+                        "what is",
+                        "what are",
+                        "when are",
+                        "tell us",
+                        "why",
+                        "how did you",
+                        "please list",
+                        "please enter",
+                        "if yes",
+                        "if no",
+                        "ideal start",
+                        "ideal end",
                         "portfolio",
-                        "tell us a bit about yourself",
-                        "why you'd like to join",
-                        "ideal start date",
-                        "ideal end date",
-                        "authorized to work",
-                        "employer sponsorship",
-                        "how did you hear",
-                        "export control",
-                        "citizen of the united states",
-                        "home country listed",
-                        "school",
-                        "degree",
-                        "discipline",
-                        "certifications",
-                        "clearance",
-                        "onboarding",
-                        "available for full-time",
+                        "earliest",
+                        "i am one of the following",
                     ]
+                )
+                or (
+                    len(clean.split()) <= 6
+                    and any(
+                        k in lower
+                        for k in [
+                            "portfolio",
+                            "github",
+                            "start date",
+                            "end date",
+                            "clearance",
+                            "certification",
+                            "hear about",
+                        ]
+                    )
                 )
             )
 
-            if is_question:
-                clean_q = re.sub(r"[\s\*✱:]+$", "", line).strip()
-                clean_lower = clean_q.lower()
-                if clean_lower not in seen and len(clean_q) > 4:
-                    # Ignore descriptive paragraph sentences
-                    if clean_q.startswith("Required - Please add a website link"):
-                        continue
-                    seen.add(clean_lower)
-                    ftype = (
-                        "textarea" if any(k in clean_lower for k in ["tell us", "why", "describe", "list"]) else "text"
+            if is_question and lower not in seen:
+                seen.add(lower)
+                ftype = "textarea" if any(k in lower for k in ["tell us", "why", "describe", "list"]) else "text"
+                fields.append(
+                    ApplicationFormField(
+                        field_id=f"text_field_{len(fields) + 1}",
+                        label=clean,
+                        field_type=ftype,
+                        required=True,
                     )
-                    fields.append(
-                        ApplicationFormField(
-                            field_id=f"text_field_{len(fields) + 1}",
-                            label=clean_q,
-                            field_type=ftype,
-                            required=True,
-                        )
-                    )
+                )
 
         return fields
 
@@ -555,15 +607,30 @@ class ATSFormScanner:
                     q.suggested_answer = "Yes"
 
             # 13. Education & University Fields
-            elif bool(re.search(r"\b(school|university|college|institution)\b", lbl)):
+            elif bool(
+                re.search(
+                    r"\b(your school|university name|college name|institution name|attended school|school/university)\b|^(?:school|university|college)$",
+                    lbl,
+                )
+            ):
                 q.suggested_answer = facts["school"]
-            elif bool(re.search(r"\b(degree|qualification)\b", lbl)):
+            elif bool(
+                re.search(
+                    r"\b(your degree|degree type|degree level|highest degree|degree earned)\b|^(?:degree|qualification)$",
+                    lbl,
+                )
+            ):
                 q.suggested_answer = facts["degree"]
-            elif bool(re.search(r"\b(discipline|major|field of study|area of study)\b", lbl)):
+            elif bool(
+                re.search(
+                    r"\b(academic major|college major|undergraduate major|your major|field of study|area of study|academic discipline|major/field)\b|^(?:major|discipline)$",
+                    lbl,
+                )
+            ):
                 q.suggested_answer = facts["discipline"]
-            elif bool(re.search(r"\b(start date year|start year)\b", lbl)):
+            elif bool(re.search(r"\b(start year|start date year)\b", lbl)):
                 q.suggested_answer = facts["start_year"]
-            elif bool(re.search(r"\b(end date year|graduation year|end year|grad year)\b", lbl)):
+            elif bool(re.search(r"\b(end date year|graduation year|end year|grad year|year of graduation)\b", lbl)):
                 q.suggested_answer = facts["end_year"]
 
             # 14. Availability & Compensation
