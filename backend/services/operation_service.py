@@ -17,7 +17,7 @@ class OperationService:
     """Service to manage operation lifecycle and broadcast real-time updates."""
 
     def __init__(self, session: AsyncSession, user_id: UUID | str) -> None:
-        self.user_id: UUID = UUID(str(user_id)) if not isinstance(user_id, UUID) else user_id
+        self.user_id: UUID = UUID(user_id) if not isinstance(user_id, UUID) else user_id
         self.repo: OperationRepository = OperationRepository(session, self.user_id)
         self.channel_name: str = f"user:{self.user_id}:operations"
 

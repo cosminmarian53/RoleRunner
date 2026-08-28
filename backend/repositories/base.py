@@ -23,11 +23,11 @@ class BaseTenantRepository(Generic[ModelT]):
     def __init__(self, model_class: type[ModelT], session: AsyncSession, user_id: UUID | str) -> None:
         self.model_class = model_class
         self.session = session
-        self.user_id = UUID(str(user_id)) if not isinstance(user_id, UUID) else user_id
+        self.user_id = UUID(user_id) if not isinstance(user_id, UUID) else user_id
 
     async def get_by_id(self, entity_id: UUID | str) -> ModelT | None:
         """Fetch a single record by primary key, isolated to the current user."""
-        uid = UUID(str(entity_id)) if not isinstance(entity_id, UUID) else entity_id
+        uid = UUID(entity_id) if not isinstance(entity_id, UUID) else entity_id
         stmt = select(self.model_class).where(
             self.model_class.id == uid,  # type: ignore[attr-defined]
             self.model_class.user_id == self.user_id,  # type: ignore[attr-defined]
