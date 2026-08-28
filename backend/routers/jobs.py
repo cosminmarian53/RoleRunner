@@ -14,12 +14,11 @@ from backend.models.job import (
     JobScoreResponse,
     JobSearchRequest,
     JobSearchResults,
-    Recommendation,
 )
 from backend.security.auth import get_current_user
 from backend.security.jwt import CurrentUser
 from backend.services.job_intelligence import JobIntelligenceService
-from backend.services.job_scorer import JobScorer, extract_keywords_from_text
+from backend.services.job_scorer import JobScorer, extract_dynamic_profile_keywords
 from backend.services.job_search import JobSearchService, compute_url_hash
 from backend.services.profile_service import ProfileService
 
@@ -54,33 +53,28 @@ async def score_jobs(
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> JobScoreResponse:
-    """Score a list of job postings against current user's profile with high-speed keyword matching."""
+    """Score a list of job postings against current user's profile with high-speed dynamic keyword matching."""
     prof_svc = ProfileService(session, current_user.id)
     profile = await prof_svc.get_profile()
 
-    # Precompute candidate skills text and token set once
-    skills_text = " ".join([", ".join(v) for v in profile.skills.values()])
-    cv_summary_text = f"{profile.personal_info.name} {profile.summary} {skills_text}"
-    cv_keywords = extract_keywords_from_text(cv_summary_text)
+    # Dynamically extract target candidate skills & title tokens directly from candidate's profile
+    cv_keywords, title_keywords = extract_dynamic_profile_keywords(profile)
 
     scored_jobs: list[JobListing] = []
     for job in request.jobs:
-        job_text = f"{job.title} {job.company} {job.summary} {job.description}"
-        score_res = JobScorer.score_job_fast(cv_keywords, job_text)
+        job_text = f"{job.title} {job.company} {job.summary} {job.description} {' '.join(job.tags)}"
+        score_res = JobScorer.score_job_fast(
+            cv_keywords,
+            job_text,
+            job_title=job.title,
+            candidate_title_keywords=title_keywords,
+        )
 
         job_copy = job.model_copy()
-        job_copy.relevance_score = float(score_res.overall_score)
+        job_copy.relevance_score = score_res.score
         job_copy.match_reasons = score_res.matched_keywords[:5]
         job_copy.gaps = score_res.missing_keywords[:5]
-
-        if score_res.overall_score >= 80:
-            job_copy.recommendation = Recommendation.STRONG_MATCH
-        elif score_res.overall_score >= 60:
-            job_copy.recommendation = Recommendation.GOOD_MATCH
-        elif score_res.overall_score >= 40:
-            job_copy.recommendation = Recommendation.PARTIAL_MATCH
-        else:
-            job_copy.recommendation = Recommendation.WEAK_MATCH
+        job_copy.recommendation = score_res.recommendation
 
         scored_jobs.append(job_copy)
 
@@ -99,9 +93,7 @@ async def score_all_jobs(
     prof_svc = ProfileService(session, current_user.id)
     profile = await prof_svc.get_profile()
 
-    skills_text = " ".join([", ".join(v) for v in profile.skills.values()])
-    cv_summary_text = f"{profile.personal_info.name} {profile.summary} {skills_text}".strip()
-    cv_keywords = extract_keywords_from_text(cv_summary_text)
+    cv_keywords, title_keywords = extract_dynamic_profile_keywords(profile)
 
     job_service = JobSearchService(session, current_user.id)
     jobs_to_score: list[JobListing] = []
@@ -115,22 +107,19 @@ async def score_all_jobs(
     has_db_updates = False
 
     for job in jobs_to_score:
-        job_text = f"{job.title} {job.company} {job.summary} {job.description}"
-        score_res = JobScorer.score_job_fast(cv_keywords, job_text)
+        job_text = f"{job.title} {job.company} {job.summary} {job.description} {' '.join(job.tags)}"
+        score_res = JobScorer.score_job_fast(
+            cv_keywords,
+            job_text,
+            job_title=job.title,
+            candidate_title_keywords=title_keywords,
+        )
 
         job_copy = job.model_copy()
-        job_copy.relevance_score = float(score_res.overall_score)
+        job_copy.relevance_score = score_res.score
         job_copy.match_reasons = score_res.matched_keywords[:5]
         job_copy.gaps = score_res.missing_keywords[:5]
-
-        if score_res.overall_score >= 80:
-            job_copy.recommendation = Recommendation.STRONG_MATCH
-        elif score_res.overall_score >= 60:
-            job_copy.recommendation = Recommendation.GOOD_MATCH
-        elif score_res.overall_score >= 40:
-            job_copy.recommendation = Recommendation.PARTIAL_MATCH
-        else:
-            job_copy.recommendation = Recommendation.WEAK_MATCH
+        job_copy.recommendation = score_res.recommendation
 
         scored_jobs.append(job_copy)
 
