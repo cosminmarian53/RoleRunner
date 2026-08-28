@@ -125,7 +125,10 @@ class ATSFormScanner:
 
         # 1. Look for structured form groups (NEVER select bare label tags as blocks!)
         question_blocks = soup.select(
-            ".custom-question, .application-question, .form-group, .section-wrapper, [data-qa='form-field'], .ashby-application-form-field, fieldset"
+            ".custom-question, .application-question, .form-group, .section-wrapper, "
+            "[data-qa='form-field'], .ashby-application-form-field, fieldset, "
+            ".field, .form-field, .form-row, .s5-field, #custom_fields .field, "
+            "#demographic_questions .field, #eeoc_fields .field, form > div"
         )
 
         for block in question_blocks:
@@ -142,10 +145,12 @@ class ATSFormScanner:
                 if legend:
                     label_el = legend
                 else:
-                    for l_tag in block.find_all("label", recursive=False):
-                        if not l_tag.find(["input", "select"]):
+                    for l_tag in block.find_all("label"):
+                        if not l_tag.find(["input"]):
                             label_el = l_tag
                             break
+                        if not label_el:
+                            label_el = l_tag
 
             if not label_el:
                 continue
