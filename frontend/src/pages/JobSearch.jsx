@@ -65,7 +65,7 @@ export default function JobSearch() {
               <span className="source-label">{job.source?.replaceAll("_", " ") || "job"}</span>
               {job.source_platform && <span className="platform-badge">{job.source_platform}</span>}
             </div>
-            {job.relevance_score != null && <span className={`score ${job.relevance_score >= 8 ? "high" : ""}`}>{job.relevance_score.toFixed(1)}</span>}
+            {job.relevance_score != null && <span className={`score ${job.relevance_score >= 7.5 ? "high" : job.relevance_score >= 5.0 ? "medium" : "low"}`}>{job.relevance_score.toFixed(1)}</span>}
           </div>
           <div className="job-header-row">
             {job.logo_url && <img className="company-logo" src={job.logo_url} alt="" loading="lazy" />}
