@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from urllib.parse import urlparse
@@ -18,7 +19,9 @@ from backend.scrapers.greenhouse import (
     GREENHOUSE_BOARD_URL_PATTERN,
     GreenhouseScraper,
 )
+from backend.scrapers.job_feeds import ArbeitnowFeed, JobicyFeed, RemotiveFeed
 from backend.scrapers.lever import LEVER_BOARD_URL_PATTERN, LeverScraper
+from backend.scrapers.page_inspector import DeepPageInspector
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,7 @@ def compute_url_hash(url: str) -> str:
 
 
 class JobSearchService:
-    """Aggregates job searches from direct career APIs, HTML pages, and web engines."""
+    """Aggregates job searches from direct career APIs, HTML pages, web engines, and public feeds."""
 
     def __init__(self, session: AsyncSession, user_id: UUID | str) -> None:
         self.session = session
@@ -44,15 +47,14 @@ class JobSearchService:
         self.lever = LeverScraper()
         self.generic = GenericCareerScraper()
         self.ddg = DDGJobSearcher()
+        self.remotive = RemotiveFeed()
+        self.jobicy = JobicyFeed()
+        self.arbeitnow = ArbeitnowFeed()
+        self.inspector = DeepPageInspector()
 
-    async def search_and_persist(self, request: JobSearchRequest) -> JobSearchResults:
-        """
-        Execute search across configured company boards and web search,
-        deduplicating against existing tenant database records.
-        """
-        found_listings: list[JobListing] = []
-
-        # 1. Direct Target Companies
+    async def _search_target_companies(self, request: JobSearchRequest) -> list[JobListing]:
+        """Search direct target company career pages."""
+        found: list[JobListing] = []
         for target in request.target_companies:
             target_str = target.strip()
             if not target_str:
@@ -65,15 +67,16 @@ class JobSearchService:
             elif target_str.startswith(("http://", "https://")):
                 jobs = await self.generic.fetch_jobs(target_str)
             else:
-                # Try greenhouse first, then lever
                 jobs = await self.greenhouse.fetch_jobs(target_str)
                 if not jobs:
                     jobs = await self.lever.fetch_jobs(target_str)
 
-            found_listings.extend(jobs)
+            found.extend(jobs)
+        return found
 
-        # 2. Web Search Aggregation (DDG)
-        ddg_jobs = await self.ddg.search(
+    async def _search_ddg(self, request: JobSearchRequest) -> list[JobListing]:
+        """Run DuckDuckGo ATS web search."""
+        return await self.ddg.search(
             request.query,
             site_filters=request.site_filters or request.board_urls,
             location=request.location_filter,
@@ -81,9 +84,122 @@ class JobSearchService:
             remote_only=request.remote_only,
             limit=request.limit,
         )
-        found_listings.extend(ddg_jobs)
 
-        # 3. Deduplicate in-memory by url_hash
+    async def _search_feeds(self, query: str, limit: int) -> list[JobListing]:
+        """Run all public job feed searches concurrently."""
+        results = await asyncio.gather(
+            self.remotive.search(query, limit=limit),
+            self.jobicy.search(query, limit=limit),
+            self.arbeitnow.search(query, limit=limit),
+            return_exceptions=True,
+        )
+
+        combined: list[JobListing] = []
+        feed_names = ["Remotive", "Jobicy", "Arbeitnow"]
+        for feed_name, result in zip(feed_names, results):
+            if isinstance(result, Exception):
+                logger.warning("%s feed error: %s", feed_name, result)
+            elif isinstance(result, list):
+                combined.extend(result)
+        return combined
+
+    async def _enrich_with_deep_inspection(self, listings: list[JobListing]) -> list[JobListing]:
+        """Enrich listings missing location or date by fetching and inspecting their pages."""
+        urls_to_inspect: list[str] = []
+        url_to_idx: dict[str, list[int]] = {}
+
+        for idx, listing in enumerate(listings):
+            needs_location = not listing.location or listing.location.lower() in ("", "location not listed")
+            needs_date = not listing.date_posted
+            if (needs_location or needs_date) and listing.link:
+                url = listing.link
+                urls_to_inspect.append(url)
+                url_to_idx.setdefault(url, []).append(idx)
+
+        if not urls_to_inspect:
+            return listings
+
+        # Deduplicate URLs for inspection
+        unique_urls = list(dict.fromkeys(urls_to_inspect))
+        # Cap at 20 inspections per search to keep response time reasonable
+        unique_urls = unique_urls[:20]
+
+        inspection_results = await self.inspector.inspect_many(unique_urls)
+
+        enriched = list(listings)
+        expired_indices: set[int] = set()
+
+        for url, meta in inspection_results.items():
+            if url not in url_to_idx:
+                continue
+
+            for idx in url_to_idx[url]:
+                if meta.is_expired:
+                    expired_indices.add(idx)
+                    continue
+
+                listing = enriched[idx]
+
+                # Enrich location
+                if meta.location and (not listing.location or listing.location.lower() in ("", "location not listed")):
+                    listing.location = meta.location
+
+                # Enrich date_posted
+                if meta.date_posted and not listing.date_posted:
+                    listing.date_posted = meta.date_posted
+
+                # Enrich salary
+                if meta.salary and not listing.salary:
+                    listing.salary = meta.salary
+
+                # Enrich employment type
+                if meta.employment_type and not listing.employment_type:
+                    listing.employment_type = meta.employment_type
+
+                # Enrich company name
+                if meta.company and not listing.company:
+                    listing.company = meta.company
+
+                # Enrich logo
+                if meta.logo_url and not listing.logo_url:
+                    listing.logo_url = meta.logo_url
+
+                # Enrich expiry
+                if meta.valid_through and not listing.expires:
+                    listing.expires = meta.valid_through
+
+        # Remove confirmed expired listings
+        if expired_indices:
+            enriched = [listing for idx, listing in enumerate(enriched) if idx not in expired_indices]
+            logger.info("Removed %d expired listings via deep inspection", len(expired_indices))
+
+        return enriched
+
+    async def search_and_persist(self, request: JobSearchRequest) -> JobSearchResults:
+        """
+        Execute search across all configured sources concurrently,
+        enrich with deep page inspection, deduplicate, and persist.
+        """
+        # Run all search lanes concurrently
+        company_task = asyncio.create_task(self._search_target_companies(request))
+        ddg_task = asyncio.create_task(self._search_ddg(request))
+        feeds_task = asyncio.create_task(self._search_feeds(request.query, request.limit))
+
+        company_results, ddg_results, feed_results = await asyncio.gather(
+            company_task,
+            ddg_task,
+            feeds_task,
+            return_exceptions=True,
+        )
+
+        found_listings: list[JobListing] = []
+        for label, result in [("Companies", company_results), ("DDG", ddg_results), ("Feeds", feed_results)]:
+            if isinstance(result, Exception):
+                logger.warning("Search lane %s error: %s", label, result)
+            elif isinstance(result, list):
+                found_listings.extend(result)
+
+        # Deduplicate in-memory by url_hash
         unique_listings: list[JobListing] = []
         seen_hashes: set[str] = set()
 
@@ -96,7 +212,10 @@ class JobSearchService:
                 seen_hashes.add(h)
                 unique_listings.append(listing)
 
-        # 4. Filter against existing jobs in Postgres and persist new ones
+        # Enrich DDG/web results with deep page inspection (location, date, salary)
+        unique_listings = await self._enrich_with_deep_inspection(unique_listings)
+
+        # Persist new jobs to database
         records_to_create: list[JobRecord] = []
         for listing in unique_listings:
             url = listing.link or listing.source_url

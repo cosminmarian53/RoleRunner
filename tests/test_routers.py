@@ -105,9 +105,10 @@ async def test_profile_endpoints(test_app_and_session):
 async def test_job_search_and_scoring_endpoints(test_app_and_session, monkeypatch):
     client, _ = test_app_and_session
 
-    # Mock DDG scraper so search is deterministic
+    # Mock DDG scraper and feeds so search is deterministic
     from backend.models.job import JobListing, JobSource
     from backend.scrapers.ddg_search import DDGJobSearcher
+    from backend.scrapers.job_feeds import ArbeitnowFeed, JobicyFeed, RemotiveFeed
 
     async def mock_search(self, query: str, **kwargs):
         return [
@@ -121,7 +122,13 @@ async def test_job_search_and_scoring_endpoints(test_app_and_session, monkeypatc
             )
         ]
 
+    async def mock_feed_search(self, query: str, **kwargs):
+        return []
+
     monkeypatch.setattr(DDGJobSearcher, "search", mock_search)
+    monkeypatch.setattr(RemotiveFeed, "search", mock_feed_search)
+    monkeypatch.setattr(JobicyFeed, "search", mock_feed_search)
+    monkeypatch.setattr(ArbeitnowFeed, "search", mock_feed_search)
 
     # 1. POST /api/jobs/search
     search_resp = await client.post(

@@ -39,7 +39,7 @@ def test_job_search_request_normalizes_query_and_bounds_limit() -> None:
     with pytest.raises(ValidationError):
         JobSearchRequest(query="   ")
     with pytest.raises(ValidationError):
-        JobSearchRequest(query="security", limit=51)
+        JobSearchRequest(query="security", limit=151)
 
 
 def test_cv_generation_requires_description_or_url() -> None:

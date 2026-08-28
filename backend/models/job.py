@@ -14,6 +14,7 @@ class JobSource(StrEnum):
 
     COMPANY_CAREER = "company_career"
     JOB_BOARD = "job_board"
+    JOB_FEED = "job_feed"
     WEB_SEARCH = "web_search"
     MANUAL = "manual"
 
@@ -46,6 +47,8 @@ class JobListing(BaseModel):
     source_url: str = ""
     employment_type: str = ""
     salary: str = ""
+    logo_url: str = ""
+    expires: str = ""
     tags: list[str] = Field(default_factory=list)
 
     # Scoring fields (populated after relevance scoring)
@@ -67,7 +70,7 @@ class JobSearchRequest(BaseModel):
     location_filter: str = ""
     date_posted_filter: str = ""
     remote_only: bool = False
-    limit: int = Field(default=20, ge=1, le=50)
+    limit: int = Field(default=30, ge=1, le=150)
 
     @field_validator("query")
     @classmethod
