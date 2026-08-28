@@ -73,9 +73,8 @@ def _stem_query_word(word: str) -> str:
 
 def calculate_query_relevance(listing: JobListing, query: str) -> float:
     """
-    Calculate query match score between 0.0 and 100.0.
-
-    Returns 0.0 for completely irrelevant listings or seniority-inverted mismatches.
+    Calculate query match score between 0.5 and 50.0 for ranking.
+    Prioritizes exact and partial title matches at the top without discarding opportunities.
     """
     query_str = query.strip()
     if not query_str:
@@ -91,11 +90,27 @@ def calculate_query_relevance(listing: JobListing, query: str) -> float:
     title_words = [_stem_query_word(w) for w in re.findall(r"[\w+#.-]+", title_lower)]
     title_words_set = set(title_words)
 
-    desc_sample = f"{listing.summary} {listing.description[:2000]}".lower()
+    desc_sample = f"{listing.summary} {listing.description[:2500]}".lower()
     desc_words = {_stem_query_word(w) for w in re.findall(r"[\w+#.-]+", desc_sample)}
     tag_words = {_stem_query_word(w) for t in listing.tags for w in re.findall(r"[\w+#.-]+", t.lower())}
 
-    # Seniority conflict check: Intern vs Senior/Exec
+    score = 1.0
+
+    # Title match scoring (highest weight)
+    title_matches = sum(1 for t in stemmed_query if t in title_words_set)
+    score += title_matches * 8.0
+    if title_matches == len(stemmed_query):
+        score += 20.0  # complete query match in title bonus
+
+    # Tags match
+    tag_matches = sum(1 for t in stemmed_query if t in tag_words)
+    score += tag_matches * 3.0
+
+    # Description match
+    desc_matches = sum(1 for t in stemmed_query if t in desc_words)
+    score += desc_matches * 1.5
+
+    # Seniority adjustment: down-rank if conflicting seniority (e.g. Intern vs Senior)
     query_is_intern = any(t in {"intern", "internship", "graduate", "junior", "entry", "trainee"} for t in tokens)
     title_is_senior = any(
         w in title_lower
@@ -114,39 +129,7 @@ def calculate_query_relevance(listing: JobListing, query: str) -> float:
         ]
     )
     if query_is_intern and title_is_senior:
-        return 0.0
-
-    query_is_senior = any(t in {"senior", "sr", "lead", "staff", "principal", "head", "director"} for t in tokens)
-    title_is_intern = any(w in title_lower for w in ["intern", "internship", "trainee", "student", "co-op"])
-    if query_is_senior and title_is_intern:
-        return 0.0
-
-    # If query specifically asks for internship/intern, require internship indicator somewhere
-    if query_is_intern:
-        has_intern_signal = any(
-            w in title_words_set or w in desc_words
-            for w in {"intern", "internship", "co-op", "trainee", "student", "fellowship"}
-        )
-        if not has_intern_signal:
-            return 0.0
-
-    # Title match scoring (highest weight)
-    title_matches = sum(1 for t in stemmed_query if t in title_words_set)
-    score = title_matches * 6.0
-    if title_matches == len(stemmed_query):
-        score += 15.0  # complete query match in title bonus
-
-    # Tags match
-    tag_matches = sum(1 for t in stemmed_query if t in tag_words)
-    score += tag_matches * 2.5
-
-    # Description match
-    desc_matches = sum(1 for t in stemmed_query if t in desc_words)
-    score += desc_matches * 1.0
-
-    # If not a single query token matched in title, and fewer than 50% matched in desc/tags, reject
-    if title_matches == 0 and (desc_matches + tag_matches) < len(stemmed_query):
-        return 0.0
+        score = min(score, 0.5)
 
     return score
 
@@ -340,17 +323,12 @@ class JobSearchService:
         # Enrich DDG/web results with deep page inspection (location, date, salary)
         unique_listings = await self._enrich_with_deep_inspection(unique_listings)
 
-        # Filter out irrelevant feed dumps and rank by search query relevance
+        # Rank all unique listings by query match score descending without discarding opportunities
         if request.query.strip():
             scored_candidates: list[tuple[float, JobListing]] = []
             for listing in unique_listings:
                 rel = calculate_query_relevance(listing, request.query)
-                if rel > 0.0:
-                    scored_candidates.append((rel, listing))
-                elif listing.source in (JobSource.COMPANY_CAREER, JobSource.WEB_SEARCH):
-                    scored_candidates.append((1.0, listing))
-                else:
-                    logger.debug("Filtered out query mismatch feed job %r for %r", listing.title, request.query)
+                scored_candidates.append((rel, listing))
 
             # Sort primarily by query match score descending, then date posted
             scored_candidates.sort(

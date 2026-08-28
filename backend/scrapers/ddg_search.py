@@ -398,12 +398,12 @@ class DDGJobSearcher:
 
         # 1. Primary individual ATS platform queries (Ashby, Lever, Greenhouse, Workable, SmartRecruiters, Wellfound)
         top_ats = [
-            "jobs.ashbyhq.com",
-            "jobs.lever.co",
+            "ashbyhq.com",
+            "lever.co",
             "boards.greenhouse.io",
-            "apply.workable.com",
+            "workable.com",
             "wellfound.com",
-            "jobs.smartrecruiters.com",
+            "smartrecruiters.com",
         ]
         for ats in top_ats:
             q = f"site:{ats} {clean_query}"
@@ -411,11 +411,12 @@ class DDGJobSearcher:
                 q = f"{q} {loc_str}"
             search_queries.append(q)
 
-        # 2. General web careers query
-        gen_q = f'{clean_query} (job OR careers OR "apply now")'
-        if loc_str:
-            gen_q = f"{gen_q} {loc_str}"
-        search_queries.append(gen_q)
+        # 2. General web careers queries (avoid complex boolean operators that cause 0 hits)
+        for suffix in ["jobs", "careers"]:
+            gen_q = f"{clean_query} {suffix}"
+            if loc_str:
+                gen_q = f"{gen_q} {loc_str}"
+            search_queries.append(gen_q)
 
         # Execute concurrent searches across all lanes
         async def run_query(q_str: str, tl: str | None) -> list[dict[str, Any]]:
