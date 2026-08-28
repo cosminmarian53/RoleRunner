@@ -45,17 +45,18 @@ async def get_current_user(
     """
     Enforce tenant authentication on protected API endpoints.
 
-    In local development when no Supabase secret is set and no header is provided,
-    falls back to DEV_FALLBACK_USER. In production, raises 401.
+    When Supabase secret is configured, validates cryptographic JWT bearer tokens.
+    When no secret is configured (development or public demo mode), falls back to DEV_FALLBACK_USER.
     """
     user = await get_optional_user(credentials)
     if user is not None:
         return user
 
-    # Development-only fallback
-    if settings.app_env == "development" and not settings.supabase_jwt_secret:
+    # Fallback to guest / dev user when no secret is configured
+    if not settings.supabase_jwt_secret:
         return DEV_FALLBACK_USER
 
+    # Strict enforcement when Supabase JWT secret is configured
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"code": "UNAUTHORIZED", "detail": "Missing authentication bearer token."},
