@@ -111,3 +111,92 @@ def test_base_metadata_naming_conventions_and_mixins() -> None:
 
     now = utc_now()
     assert now.tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_orm_models_schema_and_cascade_deletion() -> None:
+    from backend.db.models import (
+        ApplicationRecord,
+        GeneratedCVRecord,
+        JobRecord,
+        OperationRecord,
+        ProfileRecord,
+        UserRecord,
+    )
+
+    test_engine = create_engine_for_url("sqlite+aiosqlite:///:memory:")
+    await init_db(test_engine)
+
+    session_maker = async_session_factory(test_engine)
+    async with session_maker() as session:
+        # Create user
+        user = UserRecord(email="alice@example.com", settings_data={"theme": "dark"})
+        session.add(user)
+        await session.flush()
+
+        # Add profile
+        profile = ProfileRecord(user_id=user.id, data={"name": "Alice Developer"})
+        session.add(profile)
+
+        # Add job
+        job = JobRecord(
+            user_id=user.id,
+            title="Senior Rust Engineer",
+            company="Solana Protocol",
+            url="https://example.com/job/1",
+            url_hash="hash123",
+        )
+        session.add(job)
+        await session.flush()
+
+        # Add generated CV
+        cv = GeneratedCVRecord(
+            user_id=user.id,
+            job_id=job.id,
+            job_title=job.title,
+            company=job.company,
+            markdown_content="# Alice CV",
+        )
+        session.add(cv)
+        await session.flush()
+
+        # Add application
+        application = ApplicationRecord(
+            user_id=user.id,
+            job_id=job.id,
+            cv_id=cv.id,
+            title=job.title,
+            company=job.company,
+            status="applied",
+        )
+        session.add(application)
+
+        # Add operation
+        op = OperationRecord(
+            user_id=user.id,
+            type="job_search",
+            status="running",
+            progress=50,
+        )
+        session.add(op)
+        await session.commit()
+
+    # Verify entities were stored
+    async with session_maker() as session:
+        user_db = await session.get(UserRecord, user.id)
+        assert user_db is not None
+        assert user_db.email == "alice@example.com"
+
+        # Verify cascade deletion on user removal
+        await session.delete(user_db)
+        await session.commit()
+
+    async with session_maker() as session:
+        assert await session.get(UserRecord, user.id) is None
+        assert await session.get(ProfileRecord, profile.id) is None
+        assert await session.get(JobRecord, job.id) is None
+        assert await session.get(GeneratedCVRecord, cv.id) is None
+        assert await session.get(ApplicationRecord, application.id) is None
+        assert await session.get(OperationRecord, op.id) is None
+
+    await test_engine.dispose()
