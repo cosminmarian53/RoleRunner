@@ -99,8 +99,102 @@ def unwrap_redirect_url(url: str) -> str:
     return url
 
 
+GENERIC_DIRECTORY_PATHS = {
+    "role",
+    "roles",
+    "category",
+    "categories",
+    "browse",
+    "search",
+    "all-jobs",
+    "location",
+    "locations",
+    "topics",
+    "industry",
+    "industries",
+    "blog",
+    "guide",
+    "tag",
+    "tags",
+    "directory",
+    "salaries",
+    "salary",
+    "companies",
+    "startups",
+    "discover",
+    "hiring",
+    "advice",
+    "about",
+    "press",
+    "terms",
+    "privacy",
+    "faq",
+}
+
+
+def is_specific_job_url(url: str) -> bool:
+    """Validate that the URL points to a specific job opening and not a generic directory/category page."""
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+    path = parsed.path.strip("/")
+    parts = [p for p in path.split("/") if p]
+
+    if not parts:
+        return False
+
+    first_part = parts[0].lower()
+    if first_part in GENERIC_DIRECTORY_PATHS:
+        return False
+
+    if any(p.lower() in GENERIC_DIRECTORY_PATHS for p in parts[:-1]):
+        return False
+
+    # 1. Greenhouse (Specific job: /company/jobs/{id})
+    if "greenhouse.io" in domain:
+        return len(parts) >= 3 and parts[1].lower() == "jobs"
+
+    # 2. Lever (Specific job: /company/{uuid})
+    if "lever.co" in domain:
+        return len(parts) >= 2
+
+    # 3. Ashby (Specific job: /company/{uuid})
+    if "ashbyhq.com" in domain:
+        return len(parts) >= 2
+
+    # 4. Workable (Specific job: /company/j/{id})
+    if "workable.com" in domain:
+        return len(parts) >= 3 and parts[1].lower() == "j"
+
+    # 5. SmartRecruiters (Specific job: /company/{id})
+    if "smartrecruiters.com" in domain:
+        return len(parts) >= 2 and ("-" in parts[-1] or bool(re.search(r"\d", parts[-1])))
+
+    # 6. Wellfound / AngelList (Specific job: /jobs/{id} or /company/x/jobs/{id})
+    if "wellfound.com" in domain or "angel.co" in domain:
+        if first_part == "jobs" and len(parts) >= 2 and bool(re.search(r"\d", parts[1])):
+            return True
+        if len(parts) >= 4 and parts[0].lower() == "company" and parts[2].lower() == "jobs":
+            return True
+        return False
+
+    # 7. LinkedIn (Specific job: /jobs/view/{id})
+    if "linkedin.com" in domain:
+        return len(parts) >= 3 and parts[0].lower() == "jobs" and parts[1].lower() == "view"
+
+    # 8. Indeed (Specific job: /viewjob?jk=...)
+    if "indeed.com" in domain:
+        return "viewjob" in path.lower() or "rc/clk" in path.lower() or "pagead/clk" in path.lower()
+
+    # 9. General Career / Job URLs
+    job_indicators = ["job", "jobs", "position", "positions", "career", "careers", "opening", "openings", "v", "p", "j"]
+    has_job_keyword = any(ind in [p.lower() for p in parts] for ind in job_indicators)
+    has_slug_or_id = bool(re.search(r"[\d-]", parts[-1])) or len(parts[-1]) >= 8
+
+    return has_job_keyword and len(parts) >= 2 and has_slug_or_id
+
+
 def is_job_listing(title: str, url: str, snippet: str) -> bool:
-    """Validate that the search result is an actual job opening and not an article or definition."""
+    """Validate that the search result is an actual job opening and not an article, definition, or directory."""
     clean_url = unwrap_redirect_url(url)
     parsed = urlparse(clean_url)
     domain = parsed.netloc.lower()
@@ -115,6 +209,10 @@ def is_job_listing(title: str, url: str, snippet: str) -> bool:
 
     title_lower = title.lower()
     if any(title_lower.startswith(prefix) for prefix in BLOCKED_PREFIXES):
+        return False
+
+    # Must point to an actual specific job posting (not a directory/category landing page)
+    if not is_specific_job_url(clean_url):
         return False
 
     # Known ATS job board URLs are inherently valid jobs
