@@ -84,6 +84,17 @@ def extract_profile_facts(profile: CandidateProfile) -> dict[str, str]:
     start_year = years[0] if len(years) >= 2 else "2022"
     end_year = years[1] if len(years) >= 2 else (years[0] if years else "2026")
 
+    # Certifications
+    certs_list = []
+    for cert in profile.certifications:
+        date_str = f" ({cert.date})" if cert.date else ""
+        certs_list.append(f"{cert.name} – {cert.issuer}{date_str}")
+    certs_summary = (
+        ", ".join(certs_list)
+        if certs_list
+        else "Smart Contract Security (Cyfrin, May 2025), Assembly and Formal Verification (Cyfrin, Oct 2025), Introduction to Software Engineering (IBM, Mar 2024), Blockchain Essentials (Cornell University, Oct 2024)"
+    )
+
     return {
         "country": country,
         "city": city,
@@ -92,6 +103,7 @@ def extract_profile_facts(profile: CandidateProfile) -> dict[str, str]:
         "discipline": discipline,
         "start_year": start_year,
         "end_year": end_year,
+        "certs_summary": certs_summary,
     }
 
 
@@ -320,10 +332,16 @@ class ATSFormScanner:
                     "Yes (Entering senior year at Transilvania University of Brasov, completing degree in 2026)."
                 )
 
-            # 4. Schedule & Availability Commitments
+            # 4. Full-time Hire & Graduation Timeline
+            elif bool(
+                re.search(r"\b(when are you available for full-time|full-time hire|available for full-time)\b", lbl)
+            ):
+                q.suggested_answer = "Summer 2026 (Upon graduation in 2026)"
+
+            # 5. Schedule & Weekly Hours Commitments
             elif bool(
                 re.search(
-                    r"\b(25-29|schedule|self-paced|hours|hrs/wk|eastern|monday|friday|training program|full-time|part-time)\b",
+                    r"\b(25-29|schedule|self-paced|hours|hrs/wk|eastern|monday|friday|training program)\b",
                     lbl,
                 )
             ):
@@ -332,7 +350,7 @@ class ATSFormScanner:
                     "11am–4pm Eastern Monday through Friday for the full duration of the program."
                 )
 
-            # 5. Semester Availability
+            # 6. Semester Availability
             elif bool(re.search(r"\b(semester|cohort|term)\b", lbl)):
                 # Match semester if listed in options or title
                 if any("fall 2026" in opt.lower() for opt in q.options):
@@ -342,11 +360,57 @@ class ATSFormScanner:
                 else:
                     q.suggested_answer = "Fall 2026"
 
-            # 6. Referral Source
+            # 6. Referral Source & Employee Affiliation
+            elif bool(
+                re.search(
+                    r"\b(current or former.*employee|employee referral|associated with a customer|vendor partner|connection to them)\b",
+                    lbl,
+                )
+            ):
+                q.suggested_answer = "No"
             elif bool(re.search(r"\b(how did you hear|referral|source)\b", lbl)):
                 q.suggested_answer = "LinkedIn / Company Website"
 
-            # 7. Geographic Location Fields
+            # 7. Industry Certifications & Training
+            elif "cert" in lbl:
+                if "list" in lbl or q.field_type in ("textarea", "text"):
+                    q.suggested_answer = facts["certs_summary"]
+                else:
+                    q.suggested_answer = "Yes"
+            elif bool(
+                re.search(r"\b(formal training|training.*experience within cybersecurity|cybersecurity/it)\b", lbl)
+            ):
+                q.suggested_answer = "Yes (B.S. in Electrical Engineering & Computer Science, Cybersecurity Analyst Internship at IBM Summer School)"
+
+            # 8. Security Clearance
+            elif bool(re.search(r"\b(security clearance|clearance level|active clearance)\b", lbl)):
+                q.suggested_answer = "None / Not Applicable"
+
+            # 9. In-Person Onboarding & Travel
+            elif bool(
+                re.search(r"\b(attend.*onboarding|in-person onboarding|mandatory in-person|willing to travel)\b", lbl)
+            ):
+                q.suggested_answer = (
+                    "Yes, I am fully able to attend mandatory in-person onboarding and travel as required."
+                )
+
+            # 10. Physical Location & Address
+            elif bool(re.search(r"\b(physically located within the united states|physically located.*us)\b", lbl)):
+                q.suggested_answer = (
+                    "No (Located in Brasov, Romania; open to travel for onboarding and remote coordination)"
+                )
+            elif bool(re.search(r"\b(primary location during|where will you primarily be located)\b", lbl)):
+                q.suggested_answer = f"{facts['city']}, {facts['country']}"
+            elif lbl in (
+                "full street address",
+                "street address",
+                "address",
+                "city, state & zip",
+                "city, state, zip",
+                "postal code",
+                "zip code",
+            ):
+                q.suggested_answer = f"{facts['city']}, {facts['country']}"
             elif lbl in ("country", "country of residence", "current country"):
                 q.suggested_answer = facts["country"]
             elif lbl in ("location (city)", "city", "current city", "location") or "what is your location" in lbl:
@@ -356,7 +420,7 @@ class ATSFormScanner:
                     else facts["city"]
                 )
 
-            # 8. Signature Name & Date Fields
+            # 11. Signature Name & Date Fields
             elif lbl in ("name", "signature", "full name signature", "applicant signature"):
                 q.suggested_answer = profile.personal_info.name or "Cosmin-Marian Lavric"
             elif lbl in ("date", "signature date", "today's date"):
@@ -364,7 +428,7 @@ class ATSFormScanner:
 
                 q.suggested_answer = datetime.date.today().strftime("%m/%d/%Y")
 
-            # 8. Work Authorization & Visa Sponsorship
+            # 12. Work Authorization & Visa Sponsorship
             elif "require" in lbl and ("visa" in lbl or "sponsorship" in lbl):
                 q.suggested_answer = "Yes"
             elif "authorized to work" in lbl or ("legal" in lbl and "work" in lbl):
@@ -373,7 +437,7 @@ class ATSFormScanner:
                 else:
                     q.suggested_answer = "Yes"
 
-            # 9. Education & University Fields
+            # 13. Education & University Fields
             elif bool(re.search(r"\b(school|university|college|institution)\b", lbl)):
                 q.suggested_answer = facts["school"]
             elif bool(re.search(r"\b(degree|qualification)\b", lbl)):
@@ -385,15 +449,17 @@ class ATSFormScanner:
             elif bool(re.search(r"\b(end date year|graduation year|end year|grad year)\b", lbl)):
                 q.suggested_answer = facts["end_year"]
 
-            # 10. Availability & Compensation
+            # 14. Availability & Compensation
             elif bool(re.search(r"\b(start date|earliest start|availability|available)\b", lbl)):
                 q.suggested_answer = "Available immediately or as specified in the role timeline."
             elif bool(re.search(r"\b(salary|compensation|hourly rate|expected rate)\b", lbl)):
                 q.suggested_answer = "Negotiable / standard range for the role."
 
-            # 11. Voluntary Demographic / EEO Fields
+            # 15. Voluntary Demographic / EEO Fields
             elif lbl == "gender" or "what gender" in lbl:
                 q.suggested_answer = "Male"
+            elif bool(re.search(r"\b(are you hispanic|hispanic/latino|hispanic or latino)\b", lbl)):
+                q.suggested_answer = "No"
             elif lbl in ("race", "ethnicity") or "ethnicity" in lbl:
                 q.suggested_answer = "White (Not Hispanic or Latino)"
             elif "veteran" in lbl:
@@ -403,7 +469,7 @@ class ATSFormScanner:
             elif "age range" in lbl:
                 q.suggested_answer = "21-29"
 
-            # 12. Core Motivation & Behavioral Prompts
+            # 16. Core Motivation & Behavioral Prompts
             elif bool(re.search(r"\b(mission|why|interest|interested|about us|excite)\b", lbl)):
                 if any(
                     k in job_title.lower() or k in company.lower()

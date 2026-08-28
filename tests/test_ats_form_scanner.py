@@ -162,3 +162,83 @@ async def test_ats_form_scanner_resolves_education_geo_schedule_questions(monkey
             "This is not a self-paced training program. Are you able to work 25-29 hrs/wk with a majority of hours being between 11am-4pm eastern Monday - Friday from January 11 - April 2, 2027?"
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_greenhouse_guidepoint_form_scanning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify Greenhouse .field DOM parsing and cybersecurity question answering."""
+    greenhouse_html = """
+    <form id="application_form">
+      <div class="field">
+        <label for="first_name">First Name<span class="asterisk">*</span></label>
+        <input type="text" name="first_name" id="first_name" />
+      </div>
+      <div class="field">
+        <label for="question_1">Do you have a recognized industry certification?<span class="asterisk">*</span></label>
+        <select id="question_1"><option>Select...</option><option>Yes</option><option>No</option></select>
+      </div>
+      <div class="field">
+        <label for="question_2">If yes, please list all recognized industry certifications</label>
+        <textarea id="question_2"></textarea>
+      </div>
+      <div class="field">
+        <label for="question_3">What level of security clearance do you have? (please note that this is not required for an internship)<span class="asterisk">*</span></label>
+        <select id="question_3"><option>Select...</option><option>None</option></select>
+      </div>
+      <div class="field">
+        <label for="question_4">Would you be able to attend our mandatory in-person onboarding from Jan 11-14 hosted at our Tampa, FL office (all travel/food/lodging costs will be covered)?<span class="asterisk">*</span></label>
+        <select id="question_4"><option>Select...</option><option>Yes</option><option>No</option></select>
+      </div>
+      <div class="field">
+        <label for="question_5">When are you available for full-time hire?<span class="asterisk">*</span></label>
+        <select id="question_5"><option>Select...</option><option>Summer 2026</option></select>
+      </div>
+      <div class="field">
+        <label for="question_6">Are you Hispanic/Latino?</label>
+        <select id="question_6"><option>Select...</option><option>No</option><option>Yes</option></select>
+      </div>
+    </form>
+    """
+
+    async def fake_get(self, url: str, *args, **kwargs) -> httpx.Response:
+        return httpx.Response(200, text=greenhouse_html, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(SafeAsyncClient, "get", fake_get)
+
+    from backend.models.profile import Certification
+
+    profile = CandidateProfile(
+        personal_info=PersonalInfo(
+            name="Cosmin Lavric",
+            location="Brasov, Romania",
+        ),
+        certifications=[
+            Certification(name="Smart Contract Security", issuer="Cyfrin", date="May 2025"),
+            Certification(name="Assembly and Formal Verification", issuer="Cyfrin", date="October 2025"),
+        ],
+    )
+
+    scanner = ATSFormScanner()
+    pack = await scanner.generate_application_pack(
+        profile=profile,
+        job_title="GPSU Cybersecurity Spring Internship",
+        company="GuidePoint Security",
+        job_description="Cybersecurity intern",
+        job_url="https://boards.greenhouse.io/guidepointsecurity/jobs/123",
+    )
+
+    ans = {q.label: q.suggested_answer for q in pack.custom_questions}
+    assert ans["Do you have a recognized industry certification?"] == "Yes"
+    assert "Smart Contract Security" in ans["If yes, please list all recognized industry certifications"]
+    assert (
+        ans["What level of security clearance do you have? (please note that this is not required for an internship)"]
+        == "None / Not Applicable"
+    )
+    assert (
+        "in-person onboarding"
+        in ans[
+            "Would you be able to attend our mandatory in-person onboarding from Jan 11-14 hosted at our Tampa, FL office (all travel/food/lodging costs will be covered)?"
+        ]
+    )
+    assert "Summer 2026" in ans["When are you available for full-time hire?"]
+    assert ans["Are you Hispanic/Latino?"] == "No"
