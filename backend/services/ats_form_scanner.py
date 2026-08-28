@@ -580,8 +580,10 @@ class ATSFormScanner:
         # Fallback to smart text parser if HTML yielded no custom questions but description has form text
         if (not custom_questions or custom_questions == self._default_standard_questions()) and job_description:
             text_questions = self.parse_text_form(job_description)
-            if text_questions:
+            if len(text_questions) >= 3:
                 custom_questions = text_questions
+            else:
+                custom_questions = self._default_standard_questions()
 
         facts = extract_profile_facts(profile)
 
