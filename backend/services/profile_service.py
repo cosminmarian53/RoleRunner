@@ -1,13 +1,15 @@
-"""Profile parsing and persistence service."""
+"""Profile parsing and persistence service with AI assistance and PostgreSQL storage."""
 
 from __future__ import annotations
 
 import json
+import logging
 import re
-from io import BytesIO
 from typing import Any
+from uuid import UUID
 
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.profile import (
     CandidateProfile,
@@ -19,9 +21,15 @@ from backend.models.profile import (
     ProfileUploadResponse,
     Project,
 )
-from backend.services.storage import JsonUserRepository
+from backend.repositories.profile_repo import ProfileRepository
+from backend.services.ai_client import ask
+from backend.services.document_extractor import (
+    DocumentExtractionError,
+    extract_document_text,
+)
+from backend.services.storage_service import StorageService
 
-PROFILE_FILENAME = "profile.json"
+logger = logging.getLogger(__name__)
 
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 PHONE_RE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
@@ -37,65 +45,197 @@ SECTION_ALIASES = {
     "achievements": {"achievements", "awards"},
 }
 
+AI_PROFILE_SYSTEM_PROMPT = """You are an expert resume parsing engine.
+Convert the provided resume text into a strictly formatted JSON object matching the following structure:
+{
+  "personal_info": {
+    "name": "Full Name",
+    "email": "email@example.com",
+    "phone": "+1234567890",
+    "linkedin": "https://linkedin.com/in/username",
+    "github": "https://github.com/username",
+    "portfolio": "https://example.com",
+    "location": "City, Country"
+  },
+  "summary": "Professional summary...",
+  "skills": {
+    "languages": ["Python", "TypeScript"],
+    "frameworks": ["FastAPI", "React"],
+    "tools": ["Docker", "Git"]
+  },
+  "experience": [
+    {
+      "company": "Company Name",
+      "title": "Job Title",
+      "duration": "2020 - Present",
+      "location": "Remote",
+      "bullets": ["Achievement 1", "Achievement 2"]
+    }
+  ],
+  "education": [
+    {
+      "institution": "University Name",
+      "degree": "B.S. in Computer Science",
+      "year": "2019",
+      "details": "Honors / GPA if mentioned"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Cert Name",
+      "issuer": "Issuer",
+      "date": "2021"
+    }
+  ],
+  "projects": [
+    {
+      "name": "Project Name",
+      "tech": "Tech stack",
+      "description": "Short description"
+    }
+  ],
+  "languages": [
+    {
+      "language": "English",
+      "level": "Fluent"
+    }
+  ],
+  "achievements": ["Award or milestone 1"]
+}
+Output ONLY raw valid JSON with no markdown backticks, explanations, or think tags."""
+
 
 class ProfileService:
-    """User-scoped profile service backed by local JSON files."""
+    """Tenant-scoped profile service backed by PostgreSQL / Supabase."""
 
-    def __init__(self, repository: JsonUserRepository | None = None) -> None:
-        self.repository = repository or JsonUserRepository()
+    def __init__(self, session: AsyncSession, user_id: UUID | str) -> None:
+        self.session = session
+        self.user_id = UUID(str(user_id))
+        self.repo = ProfileRepository(session, self.user_id)
+        self.storage = StorageService()
 
-    def get_profile(self, user_id: str) -> CandidateProfile:
-        return self.repository.read_model(user_id, PROFILE_FILENAME, CandidateProfile) or CandidateProfile()
+    async def get_profile(self) -> CandidateProfile:
+        """Fetch candidate profile from the database."""
+        record = await self.repo.get_profile()
+        if record and record.data:
+            try:
+                return CandidateProfile.model_validate(record.data)
+            except ValidationError as exc:
+                logger.warning("Profile data validation failed: %s", exc)
+        return CandidateProfile()
 
-    def save_profile(self, user_id: str, profile: CandidateProfile) -> CandidateProfile:
-        self.repository.write_model(user_id, PROFILE_FILENAME, profile)
+    async def save_profile(self, profile: CandidateProfile) -> CandidateProfile:
+        """Persist profile model into PostgreSQL JSONB."""
+        data = profile.model_dump(mode="json")
+        await self.repo.upsert_profile(data)
         return profile
 
-    def parse_profile_text(self, user_id: str, text: str, *, merge_existing: bool = True) -> ProfileUploadResponse:
+    async def parse_and_save_text(
+        self,
+        text: str,
+        *,
+        merge_existing: bool = True,
+        use_ai: bool = True,
+    ) -> ProfileUploadResponse:
+        """Parse raw text into CandidateProfile using AI or regex fallback and persist."""
         warnings: list[str] = []
-        profile: CandidateProfile
+        profile: CandidateProfile | None = None
 
+        # 1. Try parsing direct JSON
         try:
             profile = self.parse_json_profile(text)
         except ValueError:
+            pass
+
+        # 2. Try AI extraction if enabled
+        if profile is None and use_ai:
+            try:
+                profile = await self.extract_profile_with_ai(text)
+            except Exception as exc:
+                logger.info("AI profile parsing skipped/failed (%s), using regex fallback", exc)
+                warnings.append("AI extraction unavailable; extracted with deterministic heuristics.")
+
+        # 3. Fallback to deterministic regex parser
+        if profile is None:
             profile = self.parse_resume_text(text)
             if not text.strip():
                 warnings.append("No text content was found to parse.")
             elif not profile.personal_info.name and not profile.summary and not profile.skills:
                 warnings.append("Only limited structured profile data could be inferred from the text.")
 
+        # 4. Merge if requested
         if merge_existing:
-            profile = merge_profiles(self.get_profile(user_id), profile)
+            existing = await self.get_profile()
+            profile = merge_profiles(existing, profile)
 
-        self.save_profile(user_id, profile)
+        await self.save_profile(profile)
         return ProfileUploadResponse(profile=profile, extracted_text=text, warnings=warnings)
 
-    async def parse_upload(self, user_id: str, upload: Any, *, merge_existing: bool = True) -> ProfileUploadResponse:
-        filename = getattr(upload, "filename", "") or "upload"
-        content = await upload.read()
-        text, warnings = extract_text_from_upload(filename, content)
+    async def parse_and_save_upload(
+        self,
+        filename: str,
+        content: bytes,
+        *,
+        merge_existing: bool = True,
+        use_ai: bool = True,
+    ) -> ProfileUploadResponse:
+        """Extract text from uploaded document, upload file to storage, parse and persist."""
+        # 1. Validate & extract text
+        try:
+            text, detected_type = extract_document_text(filename, content)
+        except DocumentExtractionError as exc:
+            raise ValueError(exc.message) from exc
 
-        if filename.lower().endswith(".json"):
+        # 2. Upload original document to secure storage
+        try:
+            await self.storage.upload_resume(
+                user_id=self.user_id,
+                file_bytes=content,
+                filename=filename,
+            )
+        except Exception as exc:
+            logger.warning("Failed to store resume document: %s", exc)
+
+        # 3. Parse JSON or text
+        if detected_type == "json":
             try:
                 profile = self.parse_json_profile(text)
             except ValueError as exc:
                 raise ValueError(f"Invalid profile JSON: {exc}") from exc
             if merge_existing:
-                profile = merge_profiles(self.get_profile(user_id), profile)
-            self.save_profile(user_id, profile)
+                existing = await self.get_profile()
+                profile = merge_profiles(existing, profile)
+            await self.save_profile(profile)
             return ProfileUploadResponse(
                 profile=profile,
                 extracted_text=text,
                 source_filename=filename,
-                warnings=warnings,
+                warnings=[],
             )
 
-        response = self.parse_profile_text(user_id, text, merge_existing=merge_existing)
+        response = await self.parse_and_save_text(
+            text,
+            merge_existing=merge_existing,
+            use_ai=use_ai,
+        )
         response.source_filename = filename
-        response.warnings.extend(warnings)
         return response
 
+    async def extract_profile_with_ai(self, text: str) -> CandidateProfile:
+        """Call Codex AI to extract structured JSON from raw resume text."""
+        prompt = f"Resume text to parse:\n\n{text[:12000]}"
+        raw_output = await ask(
+            prompt,
+            user_id=self.user_id,
+            system_prompt=AI_PROFILE_SYSTEM_PROMPT,
+        )
+        # Clean potential markdown fences
+        clean_json = re.sub(r"^```(?:json)?\s*", "", raw_output.strip())
+        clean_json = re.sub(r"\s*```$", "", clean_json).strip()
+        return self.parse_json_profile(clean_json)
+
     def parse_json_profile(self, raw: str) -> CandidateProfile:
+        """Validate and construct CandidateProfile from raw JSON string."""
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -112,6 +252,7 @@ class ProfileService:
             raise ValueError(str(exc)) from exc
 
     def parse_resume_text(self, text: str) -> CandidateProfile:
+        """Deterministic heuristic regex parser for resume text."""
         clean = normalize_text(text)
         lines = [line.strip(" \t-•") for line in clean.splitlines() if line.strip()]
         sections = split_sections(lines)
@@ -139,48 +280,14 @@ class ProfileService:
         )
 
 
-def extract_text_from_upload(filename: str, content: bytes) -> tuple[str, list[str]]:
-    """Extract readable text from supported upload formats."""
-
-    suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    warnings: list[str] = []
-
-    if suffix == "pdf":
-        try:
-            from PyPDF2 import PdfReader
-
-            reader = PdfReader(BytesIO(content))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-            return text.strip(), warnings
-        except Exception as exc:  # pragma: no cover - depends on third-party parser internals.
-            warnings.append(f"PDF text extraction failed: {exc}")
-
-    if suffix == "docx":
-        try:
-            from docx import Document
-
-            document = Document(BytesIO(content))
-            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
-            return text.strip(), warnings
-        except Exception as exc:  # pragma: no cover - depends on third-party parser internals.
-            warnings.append(f"DOCX text extraction failed: {exc}")
-
-    for encoding in ("utf-8", "utf-16", "latin-1"):
-        try:
-            return content.decode(encoding).strip(), warnings
-        except UnicodeDecodeError:
-            continue
-
-    warnings.append("Could not decode upload as text.")
-    return "", warnings
-
-
 def normalize_text(text: str) -> str:
+    """Normalize whitespace and line endings."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def split_sections(lines: list[str]) -> dict[str, list[str]]:
+    """Partition text lines into known resume sections."""
     sections: dict[str, list[str]] = {}
     current = "summary"
 
@@ -196,6 +303,7 @@ def split_sections(lines: list[str]) -> dict[str, list[str]]:
 
 
 def section_key(line: str) -> str | None:
+    """Identify if a line is a section heading."""
     normalized = re.sub(r"[^a-z ]+", "", line.lower()).strip()
     if len(normalized.split()) > 4:
         return None
@@ -206,12 +314,16 @@ def section_key(line: str) -> str | None:
 
 
 def parse_personal_info(lines: list[str], full_text: str) -> PersonalInfo:
+    """Extract contact and identity info using patterns."""
     email = first_match(EMAIL_RE, full_text)
     phone = first_match(PHONE_RE, full_text)
     urls = URL_RE.findall(full_text)
     linkedin = first_url(urls, "linkedin")
     github = first_url(urls, "github")
-    portfolio = next((url for url in urls if "linkedin" not in url.lower() and "github" not in url.lower()), "")
+    portfolio = next(
+        (url for url in urls if "linkedin" not in url.lower() and "github" not in url.lower()),
+        "",
+    )
     name = ""
 
     for line in lines[:6]:
@@ -222,10 +334,18 @@ def parse_personal_info(lines: list[str], full_text: str) -> PersonalInfo:
             name = line
             break
 
-    return PersonalInfo(name=name, email=email, phone=phone, linkedin=linkedin, github=github, portfolio=portfolio)
+    return PersonalInfo(
+        name=name,
+        email=email,
+        phone=phone,
+        linkedin=linkedin,
+        github=github,
+        portfolio=portfolio,
+    )
 
 
 def parse_skills(lines: list[str], full_text: str) -> dict[str, list[str]]:
+    """Extract and categorize skills."""
     if not lines:
         return {}
     grouped: dict[str, list[str]] = {}
@@ -263,6 +383,7 @@ def parse_skills(lines: list[str], full_text: str) -> dict[str, list[str]]:
 
 
 def parse_experience(lines: list[str]) -> list[Experience]:
+    """Parse work experience entries."""
     entries = split_entries(lines)
     experience: list[Experience] = []
     for entry in entries:
@@ -288,6 +409,7 @@ def parse_experience(lines: list[str]) -> list[Experience]:
 
 
 def parse_education(lines: list[str]) -> list[Education]:
+    """Parse education entries."""
     education: list[Education] = []
     for entry in split_entries(lines):
         if not entry:
@@ -300,15 +422,24 @@ def parse_education(lines: list[str]) -> list[Education]:
             if match:
                 year = match.group(1)
                 break
-        education.append(Education(institution=institution, degree=degree, year=year, details="\n".join(entry[2:])))
+        education.append(
+            Education(
+                institution=institution,
+                degree=degree,
+                year=year,
+                details="\n".join(entry[2:]),
+            )
+        )
     return education
 
 
 def parse_certifications(lines: list[str]) -> list[Certification]:
+    """Parse certifications entries."""
     return [Certification(name=line) for line in parse_bullet_lines(lines)]
 
 
 def parse_projects(lines: list[str]) -> list[Project]:
+    """Parse project entries."""
     projects: list[Project] = []
     for entry in split_entries(lines):
         if not entry:
@@ -318,6 +449,7 @@ def parse_projects(lines: list[str]) -> list[Project]:
 
 
 def parse_languages(lines: list[str]) -> list[Language]:
+    """Parse language proficiencies."""
     languages: list[Language] = []
     for line in parse_bullet_lines(lines):
         if ":" in line:
@@ -331,6 +463,7 @@ def parse_languages(lines: list[str]) -> list[Language]:
 
 
 def split_entries(lines: list[str]) -> list[list[str]]:
+    """Group lines into multi-line entries."""
     entries: list[list[str]] = []
     current: list[str] = []
     for line in lines:
@@ -346,6 +479,7 @@ def split_entries(lines: list[str]) -> list[list[str]]:
 
 
 def parse_bullet_lines(lines: list[str]) -> list[str]:
+    """Split bullet points and clean formatting."""
     values: list[str] = []
     for line in lines:
         parts = [part.strip(" \t-•*") for part in re.split(r"\s+[•]\s+|\n", line)]
@@ -354,11 +488,13 @@ def parse_bullet_lines(lines: list[str]) -> list[str]:
 
 
 def split_inline_values(text: str) -> list[str]:
+    """Split comma or semicolon separated values."""
     parts = re.split(r"[,;|/]| {2,}", text)
     return [part.strip(" \t-•*") for part in parts if part.strip(" \t-•*")]
 
 
 def unique_strings(values: list[str]) -> list[str]:
+    """Deduplicate strings preserving order."""
     seen: set[str] = set()
     result: list[str] = []
     for value in values:
@@ -370,17 +506,18 @@ def unique_strings(values: list[str]) -> list[str]:
 
 
 def first_match(pattern: re.Pattern[str], text: str) -> str:
+    """Extract first regex match string."""
     match = pattern.search(text)
     return match.group(0).strip() if match else ""
 
 
 def first_url(urls: list[str], needle: str) -> str:
+    """Find first URL containing substring."""
     return next((url for url in urls if needle in url.lower()), "")
 
 
 def merge_profiles(existing: CandidateProfile, incoming: CandidateProfile) -> CandidateProfile:
     """Merge newly parsed profile data into an existing profile without erasing useful fields."""
-
     personal = PersonalInfo(
         **{
             key: incoming_value or existing_value
@@ -408,6 +545,7 @@ def merge_profiles(existing: CandidateProfile, incoming: CandidateProfile) -> Ca
 
 
 def merge_model_lists(existing: list[Any], incoming: list[Any]) -> list[Any]:
+    """Merge lists of Pydantic models with deduplication by JSON content."""
     seen: set[str] = set()
     result: list[Any] = []
     for item in existing + incoming:
