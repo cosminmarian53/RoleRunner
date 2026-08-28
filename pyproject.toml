@@ -32,6 +32,8 @@ dependencies = [
     "mcp>=1.9.0",
     # CLI & display
     "rich>=15.0.0",
+    # Security & Auth
+    "pyjwt[crypto]>=2.9.0",
     # Config
     "python-dotenv>=1.1.0",
 ]
