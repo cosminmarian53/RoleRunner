@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,8 @@ from backend.services.job_scorer import JobScorer, extract_dynamic_profile_keywo
 from backend.services.job_search import JobSearchService, compute_url_hash
 from backend.services.profile_service import ProfileService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
@@ -31,9 +35,33 @@ async def search_jobs(
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> JobSearchResults:
-    """Execute multi-board and web job search with deduplication and persistence."""
+    """Execute multi-board and web job search with deduplication, query filtering, and profile scoring."""
     service = JobSearchService(session, current_user.id)
-    return await service.search_and_persist(request)
+    results = await service.search_and_persist(request)
+
+    # Auto-score search results against profile if user has skills defined
+    try:
+        prof_svc = ProfileService(session, current_user.id)
+        profile = await prof_svc.get_profile()
+        cv_keywords, title_keywords = extract_dynamic_profile_keywords(profile)
+
+        if cv_keywords or title_keywords:
+            for job in results.jobs:
+                job_text = f"{job.title} {job.company} {job.summary} {job.description} {' '.join(job.tags)}"
+                score_res = JobScorer.score_job_fast(
+                    cv_keywords,
+                    job_text,
+                    job_title=job.title,
+                    candidate_title_keywords=title_keywords,
+                )
+                job.relevance_score = score_res.score
+                job.match_reasons = score_res.matched_keywords[:5]
+                job.gaps = score_res.missing_keywords[:5]
+                job.recommendation = score_res.recommendation
+    except Exception as exc:
+        logger.debug("Auto profile scoring skipped: %s", exc)
+
+    return results
 
 
 @router.get("", response_model=list[JobListing])

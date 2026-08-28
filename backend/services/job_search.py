@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -24,6 +25,130 @@ from backend.scrapers.lever import LEVER_BOARD_URL_PATTERN, LeverScraper
 from backend.scrapers.page_inspector import DeepPageInspector
 
 logger = logging.getLogger(__name__)
+
+QUERY_STOP_WORDS = {
+    "in",
+    "at",
+    "for",
+    "with",
+    "and",
+    "or",
+    "to",
+    "the",
+    "a",
+    "an",
+    "of",
+    "on",
+    "by",
+    "as",
+    "is",
+    "are",
+    "role",
+    "job",
+    "jobs",
+    "position",
+    "positions",
+    "opportunity",
+    "opportunities",
+}
+
+
+def _stem_query_word(word: str) -> str:
+    """Simple stemmer for job title and query token normalization."""
+    w = word.lower().strip()
+    if w.endswith("ies"):
+        return w[:-3] + "y"
+    if w.endswith("ing"):
+        return w[:-3]
+    if w.endswith("ships"):
+        return w[:-5]
+    if w.endswith("ship"):
+        return w[:-4]
+    if w.endswith("ers"):
+        return w[:-3] + "er"
+    if w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def calculate_query_relevance(listing: JobListing, query: str) -> float:
+    """
+    Calculate query match score between 0.0 and 100.0.
+
+    Returns 0.0 for completely irrelevant listings or seniority-inverted mismatches.
+    """
+    query_str = query.strip()
+    if not query_str:
+        return 1.0
+
+    raw_tokens = [w.lower() for w in re.findall(r"[\w+#.-]+", query_str) if len(w) > 1]
+    tokens = [w for w in raw_tokens if w not in QUERY_STOP_WORDS]
+    if not tokens:
+        return 1.0
+
+    stemmed_query = [_stem_query_word(t) for t in tokens]
+    title_lower = listing.title.lower()
+    title_words = [_stem_query_word(w) for w in re.findall(r"[\w+#.-]+", title_lower)]
+    title_words_set = set(title_words)
+
+    desc_sample = f"{listing.summary} {listing.description[:2000]}".lower()
+    desc_words = {_stem_query_word(w) for w in re.findall(r"[\w+#.-]+", desc_sample)}
+    tag_words = {_stem_query_word(w) for t in listing.tags for w in re.findall(r"[\w+#.-]+", t.lower())}
+
+    # Seniority conflict check: Intern vs Senior/Exec
+    query_is_intern = any(t in {"intern", "internship", "graduate", "junior", "entry", "trainee"} for t in tokens)
+    title_is_senior = any(
+        w in title_lower
+        for w in [
+            "senior",
+            "sr.",
+            "sr",
+            "lead",
+            "staff",
+            "principal",
+            "head",
+            "director",
+            "vp",
+            "vice president",
+            "executive",
+        ]
+    )
+    if query_is_intern and title_is_senior:
+        return 0.0
+
+    query_is_senior = any(t in {"senior", "sr", "lead", "staff", "principal", "head", "director"} for t in tokens)
+    title_is_intern = any(w in title_lower for w in ["intern", "internship", "trainee", "student", "co-op"])
+    if query_is_senior and title_is_intern:
+        return 0.0
+
+    # If query specifically asks for internship/intern, require internship indicator somewhere
+    if query_is_intern:
+        has_intern_signal = any(
+            w in title_words_set or w in desc_words
+            for w in {"intern", "internship", "co-op", "trainee", "student", "fellowship"}
+        )
+        if not has_intern_signal:
+            return 0.0
+
+    # Title match scoring (highest weight)
+    title_matches = sum(1 for t in stemmed_query if t in title_words_set)
+    score = title_matches * 6.0
+    if title_matches == len(stemmed_query):
+        score += 15.0  # complete query match in title bonus
+
+    # Tags match
+    tag_matches = sum(1 for t in stemmed_query if t in tag_words)
+    score += tag_matches * 2.5
+
+    # Description match
+    desc_matches = sum(1 for t in stemmed_query if t in desc_words)
+    score += desc_matches * 1.0
+
+    # If not a single query token matched in title, and fewer than 50% matched in desc/tags, reject
+    if title_matches == 0 and (desc_matches + tag_matches) < len(stemmed_query):
+        return 0.0
+
+    return score
 
 
 def compute_url_hash(url: str) -> str:
@@ -214,6 +339,25 @@ class JobSearchService:
 
         # Enrich DDG/web results with deep page inspection (location, date, salary)
         unique_listings = await self._enrich_with_deep_inspection(unique_listings)
+
+        # Filter out irrelevant feed dumps and rank by search query relevance
+        if request.query.strip():
+            scored_candidates: list[tuple[float, JobListing]] = []
+            for listing in unique_listings:
+                rel = calculate_query_relevance(listing, request.query)
+                if rel > 0.0:
+                    scored_candidates.append((rel, listing))
+                elif listing.source in (JobSource.COMPANY_CAREER, JobSource.WEB_SEARCH):
+                    scored_candidates.append((1.0, listing))
+                else:
+                    logger.debug("Filtered out query mismatch feed job %r for %r", listing.title, request.query)
+
+            # Sort primarily by query match score descending, then date posted
+            scored_candidates.sort(
+                key=lambda pair: (pair[0], pair[1].date_posted or ""),
+                reverse=True,
+            )
+            unique_listings = [pair[1] for pair in scored_candidates]
 
         # Persist new jobs to database
         records_to_create: list[JobRecord] = []
