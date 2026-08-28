@@ -11,7 +11,11 @@ from fastapi.responses import StreamingResponse
 
 from backend.security.auth import get_current_user
 from backend.security.jwt import CurrentUser
-from backend.services.ai_client import get_harness, get_provider_status
+from backend.services.ai_client import (
+    disconnect_harness,
+    get_harness,
+    get_provider_status,
+)
 from backend.services.redis_service import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -114,3 +118,17 @@ async def get_agent_provider_status(
 ) -> dict[str, Any]:
     """Get provider details and credential state for UI indicator."""
     return get_provider_status(user_id=current_user.id)
+
+
+@router.post("/disconnect")
+@router.post("/logout")
+async def disconnect_agent(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Disconnect and wipe the user's active Codex CLI session."""
+    success = await disconnect_harness(user_id=current_user.id)
+    return {
+        "success": success,
+        "authenticated": False,
+        "message": "Codex session disconnected successfully.",
+    }

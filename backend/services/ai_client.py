@@ -55,3 +55,18 @@ def get_provider_status(user_id: str | UUID | None = None) -> dict[str, Any]:
     """Get AI provider status for the frontend."""
     harness = get_harness(user_id=user_id)
     return harness.get_status()
+
+
+async def disconnect_harness(user_id: str | UUID | None = None) -> bool:
+    """Disconnect and clean up a tenant-scoped or global Codex session."""
+    global _global_harness
+    if user_id is not None:
+        key = str(user_id)
+        harness = _user_harnesses.pop(key, None) or CodexHarness(user_id=key)
+        return await harness.logout()
+
+    if _global_harness is not None:
+        res = await _global_harness.logout()
+        _global_harness = None
+        return res
+    return True

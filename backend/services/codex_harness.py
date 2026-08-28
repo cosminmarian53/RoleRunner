@@ -206,6 +206,46 @@ class CodexHarness:
         except FileNotFoundError:
             raise RuntimeError("Codex CLI not found. Install it before starting provider login.")
 
+    async def logout(self) -> bool:
+        """Disconnect and remove user Codex session/credentials."""
+        if self._login_proc and self._login_proc.returncode is None:
+            try:
+                self._login_proc.terminate()
+                await self._login_proc.wait()
+            except Exception:
+                pass
+        self._login_proc = None
+        self._login_output = []
+
+        # Run codex logout subprocess if supported
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "codex",
+                "logout",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self._env(),
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5)
+        except Exception as exc:
+            logger.debug("Codex CLI logout exception (will wipe local auth files): %s", exc)
+
+        # Delete user credentials directory or auth.json
+        if self.user_id:
+            get_credentials_manager().delete_user_credentials(self.user_id)
+        else:
+            auth_file = Path(self.codex_home) / "auth.json"
+            if auth_file.exists():
+                try:
+                    auth_file.unlink()
+                except OSError:
+                    pass
+
+        self.session.auth_path = None
+        self.session.is_authenticated = False
+        self.session.last_used = 0.0
+        return True
+
     async def wait_for_auth(self, timeout: int = 300) -> bool:
         """
         Wait for the user to complete the device-auth flow.
