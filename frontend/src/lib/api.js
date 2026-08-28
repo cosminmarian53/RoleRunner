@@ -1,4 +1,4 @@
-export const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api").replace(/\/$/, "");
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 
 export async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
