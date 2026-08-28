@@ -1,12 +1,15 @@
 """Router for agent status, SSE streaming, and Codex authentication."""
 
-from typing import AsyncGenerator
+from __future__ import annotations
+
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from backend.security.auth import get_current_user
 from backend.security.jwt import CurrentUser
+from backend.services.ai_client import get_harness, get_provider_status
 from backend.services.redis_service import get_redis_client
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -53,6 +56,42 @@ async def stream_agent_status(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Needed for NGINX to stream immediately
+            "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/login/start")
+async def start_agent_login(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Initiate ChatGPT device auth login for the user's isolated Codex harness."""
+    harness = get_harness(user_id=current_user.id)
+    auth_info = await harness.start_login()
+    return {
+        "authorization_url": auth_info.authorization_url,
+        "device_code": auth_info.device_code,
+        "raw_output": auth_info.raw_output,
+        "expires_at": auth_info.expires_at,
+    }
+
+
+@router.get("/login/status")
+async def get_agent_login_status(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Check whether user's Codex harness is currently authenticated."""
+    harness = get_harness(user_id=current_user.id)
+    is_authenticated = await harness.refresh_auth_status()
+    return {
+        "authenticated": is_authenticated,
+        "provider": "codex",
+    }
+
+
+@router.get("/provider/status")
+async def get_agent_provider_status(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Get provider details and credential state for UI indicator."""
+    return get_provider_status(user_id=current_user.id)

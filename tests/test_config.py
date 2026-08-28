@@ -7,15 +7,14 @@ from backend.config import PROJECT_ROOT, Settings
 
 def test_relative_data_paths_are_rooted_at_project() -> None:
     configured = Settings(
-        _env_file=None,
-        data_dir="var/data",
-        profile_path="var/profile.json",
-        credentials_dir="var/credentials",
-        ai_credentials_root="var/credentials/codex",
-        jobs_dir="var/jobs",
-        exports_dir="var/exports",
-        applications_dir="var/applications",
-        operations_dir="var/operations",
+        data_dir=Path("var/data"),
+        profile_path=Path("var/profile.json"),
+        credentials_dir=Path("var/credentials"),
+        ai_credentials_root=Path("var/credentials/codex"),
+        jobs_dir=Path("var/jobs"),
+        exports_dir=Path("var/exports"),
+        applications_dir=Path("var/applications"),
+        operations_dir=Path("var/operations"),
     )
 
     assert configured.data_dir == PROJECT_ROOT / "var/data"
@@ -24,7 +23,7 @@ def test_relative_data_paths_are_rooted_at_project() -> None:
 
 def test_home_paths_expand_and_cors_origins_are_normalized(monkeypatch: object, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))  # type: ignore[attr-defined]
-    configured = Settings(_env_file=None, data_dir="~/jobbot", cors_origins=" http://localhost:5173,https://app.test, ")
+    configured = Settings(data_dir=Path("~/jobbot"), cors_origins=" http://localhost:5173,https://app.test, ")
 
     assert configured.data_dir == tmp_path / "jobbot"
     assert configured.cors_origin_list() == ["http://localhost:5173", "https://app.test"]
@@ -32,7 +31,6 @@ def test_home_paths_expand_and_cors_origins_are_normalized(monkeypatch: object, 
 
 def test_ensure_dirs_creates_all_runtime_directories(tmp_path: Path) -> None:
     configured = Settings(
-        _env_file=None,
         data_dir=tmp_path,
         profile_path=tmp_path / "profiles/profile.json",
         credentials_dir=tmp_path / "credentials",
