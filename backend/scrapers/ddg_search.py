@@ -389,33 +389,56 @@ class DDGJobSearcher:
         elif date_lower in ("m", "month", "past_month", "30d"):
             timelimit = "m"
 
-        search_tasks: list[str] = []
         loc_str = location.strip()
         if remote_only and "remote" not in clean_query.lower() and "remote" not in loc_str.lower():
             loc_str = f"remote {loc_str}".strip()
 
-        # 1. Targeted ATS Search
-        sites = [s.strip() for s in (site_filters or DEFAULT_ATS_SITES) if s.strip()]
-        if sites:
-            site_query = " OR ".join(f"site:{s}" for s in sites[:10])
-            ats_full_query = f"({site_query}) {clean_query}"
+        # Build concurrent multi-lane search queries for top ATS platforms
+        search_queries: list[str] = []
+
+        # 1. Primary individual ATS platform queries (Ashby, Lever, Greenhouse, Workable, SmartRecruiters, Wellfound)
+        top_ats = [
+            "jobs.ashbyhq.com",
+            "jobs.lever.co",
+            "boards.greenhouse.io",
+            "apply.workable.com",
+            "wellfound.com",
+            "jobs.smartrecruiters.com",
+        ]
+        for ats in top_ats:
+            q = f"site:{ats} {clean_query}"
             if loc_str:
-                ats_full_query = f"{ats_full_query} {loc_str}"
-            search_tasks.append(ats_full_query)
+                q = f"{q} {loc_str}"
+            search_queries.append(q)
 
-        # 2. General Job Board Search
-        gen_query = f'{clean_query} (job OR careers OR "apply now")'
+        # 2. General web careers query
+        gen_q = f'{clean_query} (job OR careers OR "apply now")'
         if loc_str:
-            gen_query = f"{gen_query} {loc_str}"
-        search_tasks.append(gen_query)
+            gen_q = f"{gen_q} {loc_str}"
+        search_queries.append(gen_q)
 
-        # Execute searches concurrently
+        # Execute concurrent searches across all lanes
+        async def run_query(q_str: str, tl: str | None) -> list[dict[str, Any]]:
+            return await asyncio.to_thread(self._sync_search, q_str, 15, tl)
+
+        tasks = [run_query(q, timelimit) for q in search_queries]
+        query_results = await asyncio.gather(*tasks, return_exceptions=True)
+
         raw_items: list[dict[str, Any]] = []
-        for task_q in search_tasks:
-            results = await asyncio.to_thread(self._sync_search, task_q, target_limit * 2, timelimit)
-            raw_items.extend(results)
-            if len(raw_items) >= target_limit * 2:
-                break
+        for res in query_results:
+            if isinstance(res, list):
+                raw_items.extend(res)
+
+        # If timelimit was too restrictive and returned < 10 results, fallback to all-time search
+        if timelimit and len(raw_items) < 10:
+            logger.info(
+                "Timelimit %r yielded %d results; falling back to unconstrained search", timelimit, len(raw_items)
+            )
+            fallback_tasks = [run_query(q, None) for q in search_queries[:4]]
+            fallback_results = await asyncio.gather(*fallback_tasks, return_exceptions=True)
+            for res in fallback_results:
+                if isinstance(res, list):
+                    raw_items.extend(res)
 
         # Process, validate, and deduplicate results
         listings: list[JobListing] = []
