@@ -188,3 +188,41 @@ class JobScorer:
             missing_keywords=missing,
             improvement_suggestions=suggestions,
         )
+
+    @classmethod
+    def score_job_fast(
+        cls,
+        cv_keywords: set[str],
+        job_text: str,
+    ) -> CVScoreResult:
+        """High-performance in-memory scoring reusing pre-extracted candidate keywords."""
+        job_keywords = extract_keywords_from_text(job_text)
+        if not job_keywords:
+            return CVScoreResult(
+                overall_score=80,
+                keyword_match_pct=100.0,
+                matched_keywords=list(cv_keywords)[:10],
+                missing_keywords=[],
+                improvement_suggestions=["Job description had minimal detectable keywords."],
+            )
+
+        matched = sorted(list(job_keywords.intersection(cv_keywords)))
+        missing = sorted(list(job_keywords - cv_keywords))
+
+        match_ratio = len(matched) / len(job_keywords)
+        keyword_pct = round(match_ratio * 100, 1)
+
+        overall = int(round(keyword_pct))
+        overall = max(10, min(100, overall))
+
+        suggestions: list[str] = []
+        if missing:
+            suggestions.append(f"Target keywords: {', '.join(missing[:5])}.")
+
+        return CVScoreResult(
+            overall_score=overall,
+            keyword_match_pct=keyword_pct,
+            matched_keywords=matched,
+            missing_keywords=missing,
+            improvement_suggestions=suggestions,
+        )

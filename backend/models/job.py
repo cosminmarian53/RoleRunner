@@ -65,6 +65,7 @@ class JobSearchRequest(BaseModel):
     board_urls: list[str] = Field(default_factory=list)
     site_filters: list[str] = Field(default_factory=list)
     location_filter: str = ""
+    date_posted_filter: str = ""
     remote_only: bool = False
     limit: int = Field(default=20, ge=1, le=50)
 

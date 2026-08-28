@@ -77,6 +77,7 @@ class JobSearchService:
             request.query,
             site_filters=request.site_filters or request.board_urls,
             location=request.location_filter,
+            date_filter=request.date_posted_filter,
             remote_only=request.remote_only,
             limit=request.limit,
         )

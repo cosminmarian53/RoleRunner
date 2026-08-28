@@ -19,7 +19,7 @@ from backend.models.job import (
 from backend.security.auth import get_current_user
 from backend.security.jwt import CurrentUser
 from backend.services.job_intelligence import JobIntelligenceService
-from backend.services.job_scorer import JobScorer
+from backend.services.job_scorer import JobScorer, extract_keywords_from_text
 from backend.services.job_search import JobSearchService, compute_url_hash
 from backend.services.profile_service import ProfileService
 
@@ -54,18 +54,19 @@ async def score_jobs(
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> JobScoreResponse:
-    """Score a list of job postings against current user's profile."""
+    """Score a list of job postings against current user's profile with high-speed keyword matching."""
     prof_svc = ProfileService(session, current_user.id)
     profile = await prof_svc.get_profile()
 
-    # Form profile text
+    # Precompute candidate skills text and token set once
     skills_text = " ".join([", ".join(v) for v in profile.skills.values()])
-    cv_summary_text = f"{profile.summary} {skills_text}"
+    cv_summary_text = f"{profile.personal_info.name} {profile.summary} {skills_text}"
+    cv_keywords = extract_keywords_from_text(cv_summary_text)
 
     scored_jobs: list[JobListing] = []
     for job in request.jobs:
-        job_text = f"{job.title} {job.summary} {job.description}"
-        score_res = JobScorer.score_cv_against_job(cv_summary_text, job_text)
+        job_text = f"{job.title} {job.company} {job.summary} {job.description}"
+        score_res = JobScorer.score_job_fast(cv_keywords, job_text)
 
         job_copy = job.model_copy()
         job_copy.relevance_score = float(score_res.overall_score)
@@ -94,12 +95,13 @@ async def score_all_jobs(
     current_user: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> JobSearchResults:
-    """Score all jobs against current user's profile and persist score updates."""
+    """Score all jobs against current user's profile and persist score updates efficiently."""
     prof_svc = ProfileService(session, current_user.id)
     profile = await prof_svc.get_profile()
 
     skills_text = " ".join([", ".join(v) for v in profile.skills.values()])
     cv_summary_text = f"{profile.personal_info.name} {profile.summary} {skills_text}".strip()
+    cv_keywords = extract_keywords_from_text(cv_summary_text)
 
     job_service = JobSearchService(session, current_user.id)
     jobs_to_score: list[JobListing] = []
@@ -110,9 +112,11 @@ async def score_all_jobs(
         jobs_to_score = await job_service.list_saved_jobs(limit=100)
 
     scored_jobs: list[JobListing] = []
+    has_db_updates = False
+
     for job in jobs_to_score:
         job_text = f"{job.title} {job.company} {job.summary} {job.description}"
-        score_res = JobScorer.score_cv_against_job(cv_summary_text, job_text)
+        score_res = JobScorer.score_job_fast(cv_keywords, job_text)
 
         job_copy = job.model_copy()
         job_copy.relevance_score = float(score_res.overall_score)
@@ -137,7 +141,10 @@ async def score_all_jobs(
             if existing_rec:
                 existing_rec.relevance_score = job_copy.relevance_score
                 existing_rec.recommendation = str(job_copy.recommendation.value) if job_copy.recommendation else None
-                await session.flush()
+                has_db_updates = True
+
+    if has_db_updates:
+        await session.flush()
 
     scored_jobs.sort(key=lambda j: j.relevance_score or 0.0, reverse=True)
     return JobSearchResults(

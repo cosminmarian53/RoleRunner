@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from ddgs import DDGS
 
@@ -87,10 +87,26 @@ def clean_slug(slug: str) -> str:
     return slug.strip().title()
 
 
+def unwrap_redirect_url(url: str) -> str:
+    """Unwrap DuckDuckGo or search aggregator tracking URLs to direct target URLs."""
+    if not url:
+        return ""
+    if "duckduckgo.com/l/?" in url or "uddg=" in url:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        if "uddg" in params and params["uddg"]:
+            return unquote(params["uddg"][0])
+    return url
+
+
 def is_job_listing(title: str, url: str, snippet: str) -> bool:
     """Validate that the search result is an actual job opening and not an article or definition."""
-    parsed = urlparse(url)
+    clean_url = unwrap_redirect_url(url)
+    parsed = urlparse(clean_url)
     domain = parsed.netloc.lower()
+
+    if not clean_url.startswith(("http://", "https://")):
+        return False
 
     # Reject blocked informational domains
     for blocked in BLOCKED_DOMAINS:
@@ -131,7 +147,8 @@ def parse_job_metadata(raw_title: str, url: str, snippet: str) -> tuple[str, str
     """
     Extract clean job title, company name, location, and source from listing info.
     """
-    parsed = urlparse(url)
+    clean_url = unwrap_redirect_url(url)
+    parsed = urlparse(clean_url)
     domain = parsed.netloc.lower()
     path_parts = [p for p in parsed.path.strip("/").split("/") if p]
 
@@ -173,12 +190,10 @@ def parse_job_metadata(raw_title: str, url: str, snippet: str) -> tuple[str, str
             inferred_company = clean_slug(subdomain)
 
     # 2. Extract and clean Title & Company from title text patterns
-    # Format: "Job Title @ Company"
     if " @ " in raw_title:
         parts = raw_title.split(" @ ", 1)
         inferred_title = parts[0].strip()
         inferred_company = parts[1].strip()
-    # Format: "Title | Company" or "Company | Title"
     elif " | " in raw_title:
         parts = raw_title.split(" | ")
         if len(parts) >= 2:
@@ -189,7 +204,6 @@ def parse_job_metadata(raw_title: str, url: str, snippet: str) -> tuple[str, str
                 inferred_title = parts[0].strip()
                 if not inferred_company:
                     inferred_company = parts[1].strip()
-    # Format: "Company - Title" or "Title - Company"
     elif " - " in raw_title:
         parts = raw_title.split(" - ")
         if len(parts) >= 2:
@@ -205,7 +219,7 @@ def parse_job_metadata(raw_title: str, url: str, snippet: str) -> tuple[str, str
                 inferred_company = clean_part0
                 inferred_title = clean_part1
 
-    # Remove board suffixes from title (e.g. " - Workable Jobs", " | SmartRecruiters")
+    # Remove board suffixes from title
     inferred_title = re.sub(
         r"\s*(\||-)\s*(Workable Jobs|Jobs By Workable|SmartRecruiters|Greenhouse|Lever|Ashby|Indeed|Handshake|LinkedIn).*$",
         "",
@@ -234,11 +248,16 @@ class DDGJobSearcher:
     def __init__(self, max_results: int = 25) -> None:
         self.max_results = max_results
 
-    def _sync_search(self, query: str, max_results: int) -> list[dict[str, Any]]:
-        """Run blocking DDGS query in background thread."""
+    def _sync_search(
+        self,
+        query: str,
+        max_results: int,
+        timelimit: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run blocking DDGS query in background thread with optional timelimit."""
         try:
             with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=max_results))
+                results = list(ddgs.text(query, max_results=max_results, timelimit=timelimit))
                 return results
         except Exception as exc:
             logger.warning("DuckDuckGo search error for query %r: %s", query, exc)
@@ -250,16 +269,27 @@ class DDGJobSearcher:
         *,
         site_filters: list[str] | None = None,
         location: str = "",
+        date_filter: str = "",
         remote_only: bool = False,
         limit: int | None = None,
     ) -> list[JobListing]:
         """
-        Search DuckDuckGo with targeted ATS filters and domain verification.
+        Search DuckDuckGo with targeted ATS filters, date filtering, and domain verification.
         """
         target_limit = limit or self.max_results
         clean_query = query.strip()
         if not clean_query:
             return []
+
+        # Convert date_filter strings to DDGS timelimit codes
+        timelimit: str | None = None
+        date_lower = (date_filter or "").strip().lower()
+        if date_lower in ("d", "day", "24h", "past_24h"):
+            timelimit = "d"
+        elif date_lower in ("w", "week", "past_week", "7d"):
+            timelimit = "w"
+        elif date_lower in ("m", "month", "past_month", "30d"):
+            timelimit = "m"
 
         search_tasks: list[str] = []
         loc_str = location.strip()
@@ -284,7 +314,7 @@ class DDGJobSearcher:
         # Execute searches concurrently
         raw_items: list[dict[str, Any]] = []
         for task_q in search_tasks:
-            results = await asyncio.to_thread(self._sync_search, task_q, target_limit * 2)
+            results = await asyncio.to_thread(self._sync_search, task_q, target_limit * 2, timelimit)
             raw_items.extend(results)
             if len(raw_items) >= target_limit * 2:
                 break
@@ -301,25 +331,26 @@ class DDGJobSearcher:
             if not raw_title or not href:
                 continue
 
-            clean_url = href.split("?")[0].rstrip("/")
-            if clean_url in seen_urls:
+            clean_url = unwrap_redirect_url(href)
+            url_key = clean_url.split("?")[0].rstrip("/")
+            if url_key in seen_urls:
                 continue
 
-            if not is_job_listing(raw_title, href, body):
+            if not is_job_listing(raw_title, clean_url, body):
                 continue
 
-            seen_urls.add(clean_url)
-            title, company, loc, source = parse_job_metadata(raw_title, href, body)
+            seen_urls.add(url_key)
+            title, company, loc, source = parse_job_metadata(raw_title, clean_url, body)
 
             listing = JobListing(
                 title=title or raw_title,
                 company=company,
-                link=href,
+                link=clean_url,
                 summary=body,
                 description=body,
                 source=source,
                 location=loc or location,
-                source_url=href,
+                source_url=clean_url,
             )
             listings.append(listing)
 
