@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import jwt
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from backend.config import settings
@@ -74,10 +74,14 @@ def test_decode_non_uuid_sub_raises_auth_error() -> None:
     assert exc_info.value.code == "UNAUTHORIZED"
 
 
+def create_mock_request(headers: list[tuple[bytes, bytes]] | None = None) -> Request:
+    return Request({"type": "http", "headers": headers or []})
+
+
 @pytest.mark.asyncio
 async def test_get_current_user_dev_fallback() -> None:
-    # In dev with no secret, returns fallback user
-    user = await get_current_user(None)
+    req = create_mock_request()
+    user = await get_current_user(req, None)
     assert user.id == DEV_FALLBACK_USER.id
     assert user.email == DEV_FALLBACK_USER.email
 
@@ -86,11 +90,12 @@ async def test_get_current_user_dev_fallback() -> None:
 async def test_get_current_user_with_valid_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "supabase_jwt_secret", TEST_SECRET)
 
+    req = create_mock_request()
     user_id = uuid4()
     token = create_test_jwt(sub=str(user_id), email="carol@example.com")
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
-    user = await get_current_user(credentials)
+    user = await get_current_user(req, credentials=credentials)
     assert user.id == user_id
     assert user.email == "carol@example.com"
 
@@ -100,8 +105,9 @@ async def test_get_current_user_rejects_missing_in_production(monkeypatch: pytes
     monkeypatch.setattr(settings, "app_env", "production")
     monkeypatch.setattr(settings, "supabase_jwt_secret", TEST_SECRET)
 
+    req = create_mock_request()
     with pytest.raises(HTTPException) as exc_info:
-        await get_current_user(None)
+        await get_current_user(req, None)
 
     assert exc_info.value.status_code == 401
     assert isinstance(exc_info.value.detail, dict)
@@ -110,4 +116,16 @@ async def test_get_current_user_rejects_missing_in_production(monkeypatch: pytes
 
 @pytest.mark.asyncio
 async def test_get_optional_user_returns_none_when_header_absent() -> None:
-    assert await get_optional_user(None) is None
+    req = create_mock_request()
+    assert await get_optional_user(req, None) is None
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_with_anonymous_session_uuid() -> None:
+    req = create_mock_request()
+    session_id = uuid4()
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=str(session_id))
+    user = await get_current_user(req, credentials=credentials)
+    assert user.id == session_id
+    assert user.role == "anonymous"
+    assert user.claims.get("is_anonymous") is True

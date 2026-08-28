@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from backend.security.auth import get_current_user
@@ -89,14 +89,26 @@ async def start_agent_login(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Initiate ChatGPT device auth login for the user's isolated Codex harness."""
-    harness = get_harness(user_id=current_user.id)
-    auth_info = await harness.start_login()
-    return {
-        "authorization_url": auth_info.authorization_url,
-        "device_code": auth_info.device_code,
-        "raw_output": auth_info.raw_output,
-        "expires_at": auth_info.expires_at,
-    }
+    try:
+        harness = get_harness(user_id=current_user.id)
+        auth_info = await harness.start_login()
+        return {
+            "authorization_url": auth_info.authorization_url,
+            "device_code": auth_info.device_code,
+            "raw_output": auth_info.raw_output,
+            "expires_at": auth_info.expires_at,
+        }
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "CLI_UNAVAILABLE", "detail": str(exc)},
+        ) from exc
+    except Exception as exc:
+        logger.warning("Agent login start error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "LOGIN_FAILED", "detail": f"Failed to start device login: {exc}"},
+        ) from exc
 
 
 @router.get("/login/status")
