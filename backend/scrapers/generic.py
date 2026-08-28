@@ -71,3 +71,21 @@ class GenericCareerScraper:
                 listings.append(listing)
 
         return listings
+
+    async def fetch_job_page_content(self, job_url: str) -> str:
+        """Fetch full job posting page HTML and extract clean readable description text."""
+        if not job_url or not job_url.startswith(("http://", "https://")):
+            return ""
+        try:
+            resp = await self.client.get(job_url)
+            if resp.status_code != 200:
+                return ""
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for el in soup(["script", "style", "nav", "footer", "header", "noscript", "svg", "button"]):
+                el.decompose()
+            text = soup.get_text(separator="\n").strip()
+            lines = [line.strip() for line in text.split("\n") if line.strip()]
+            return "\n\n".join(lines[:120])
+        except Exception as exc:
+            logger.debug("Failed to fetch full job page content for %s: %s", job_url, exc)
+            return ""

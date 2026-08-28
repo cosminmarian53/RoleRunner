@@ -1,13 +1,73 @@
-"""Tailored Markdown CV generation service with AI content curation and deterministic fallback."""
-
-from __future__ import annotations
-
 import logging
+import re
 from uuid import UUID
 
 from backend.models.profile import CandidateProfile
 
 logger = logging.getLogger(__name__)
+
+
+def clean_candidate_headline(job_title: str, profile_title: str = "") -> str:
+    """
+    Derive an elegant, professional candidate headline aligned with the target role.
+    Strips raw board suffixes, requisition codes, cohorts, location tags, and seasonal fluff.
+    """
+    if profile_title and len(profile_title.strip()) > 3:
+        return profile_title.strip()
+    if not job_title:
+        return "Software Engineer"
+
+    t = job_title.strip()
+    # Remove 'at Company • Location' and everything after 'at ' or '•'
+    t = re.split(r"\s+(?:at\s+[A-Z]|•|\|)\s*", t)[0].strip()
+    # Remove board suffixes and company suffixes
+    t = re.sub(
+        r"\s*[-–—]\s*(?:Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters|TP-Link|Palantir|Blink22|Canonical|ScriptChain|Euronet|CertiK|Clickhouse).*$",
+        "",
+        t,
+        flags=re.I,
+    ).strip()
+    # Remove location suffixes
+    t = re.sub(
+        r"\s*[-–—]\s*(?:France|Germany|UK|US|USA|London|Berlin|New York|San Francisco|Canada|Australia|Singapore|EMEA|APAC|US\s*Government.*).*$",
+        "",
+        t,
+        flags=re.I,
+    ).strip()
+    # Remove parentheticals
+    t = re.sub(
+        r"\s*\((?:m/f/d|m/w/d|d/f/m|f/m/d|remote|hybrid|on-site|full-time|part-time|contract|req\s*\d+|us\s*government.*)\)",
+        "",
+        t,
+        flags=re.I,
+    ).strip()
+    # Remove seasonal prefixes
+    t = re.sub(
+        r"^(?:\d{4}|Summer\s*\d{4}|Fall\s*\d{4}|Winter\s*\d{4}|Spring\s*\d{4})\s*(?:Early\s*Career|Internship|Intern)?\s*[-–—:]?\s*",
+        "",
+        t,
+        flags=re.I,
+    ).strip()
+
+    # Check internship
+    is_intern = bool(re.search(r"\b(intern|internship|co-op|trainee|student)\b", job_title, re.I))
+
+    # Clean inner parentheticals like (Internship, Summer 2027)
+    base = re.sub(
+        r"[\(,]?\s*(?:internship|intern|co-op|trainee|student|summer\s*\d{4}|fall\s*\d{4}|winter\s*\d{4}|spring\s*\d{4}|202[4-9])\s*[\)]?",
+        "",
+        t,
+        flags=re.I,
+    ).strip(" ,-–—")
+    base = re.sub(r"\s*[-–—]\s*Software\s+Engineering\b", "Software Engineering", base, flags=re.I).strip()
+
+    if is_intern:
+        if "intern" not in base.lower():
+            if base.lower().endswith("engineer"):
+                base = base[:-8] + "Engineering"
+            return f"{base.strip()} Intern".strip()
+
+    return base or t
 
 
 def _format_category_name(raw_category: str) -> str:
@@ -35,7 +95,7 @@ def generate_deterministic_cv_markdown(
 
     # 1. Header & Title
     name = profile.personal_info.name or "Candidate"
-    target_role = job_title or getattr(profile.personal_info, "title", "") or "Professional"
+    target_role = clean_candidate_headline(job_title, getattr(profile.personal_info, "title", ""))
     lines.append(f"# {name}")
     lines.append(f"**{target_role}**")
     lines.append("")
@@ -164,6 +224,8 @@ class CVGenerator:
         use_ai: bool = False,
     ) -> str:
         """Generate tailored CV Markdown content."""
+        headline = clean_candidate_headline(job_title, getattr(profile.personal_info, "title", ""))
+
         if not use_ai:
             return generate_deterministic_cv_markdown(profile, job_title, company)
 
@@ -175,9 +237,10 @@ STRICT FORMATTING & CONTENT RULES:
 2. Structure all achievements, responsibilities, and project points into distinct markdown bullet points starting with `- `.
 3. NEVER output raw unbulleted paragraphs for job experiences or achievements. Every single responsibility must be a bullet point `- `.
 4. Convert all skill category names into polished Title Case (e.g. `Tools & Technologies`, `Core Competencies`).
-5. Adhere strictly to this hierarchy:
+5. Choose a clean, professional candidate headline (recommended: `{headline}`) representing the candidate's qualification level, NEVER verbatim echoing messy employer requisition IDs, locations, or seasonal dates.
+6. Adhere strictly to this hierarchy:
    # [Candidate Name]
-   **[Target Role Title]**
+   **{headline}**
    [Email] • [Phone] • [Location] • [GitHub Link] • [LinkedIn Link]
 
    [Tailored Executive Summary emphasizing alignment with the role]
@@ -206,7 +269,7 @@ TARGET JOB DETAILS:
 Title: {job_title}
 Company: {company}
 Description:
-{job_description[:3000]}
+{job_description[:4000]}
 
 CANDIDATE MASTER PROFILE (JSON):
 {profile.model_dump_json(indent=2)}

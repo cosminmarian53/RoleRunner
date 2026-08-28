@@ -54,7 +54,19 @@ async def score_cv_markdown(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> CVScoreResult:
     """Calculate deterministic ATS keyword match score for CV text."""
-    return JobScorer.score_cv_against_job(request.markdown_content, request.job_description)
+    job_desc = request.job_description.strip()
+    if request.job_url and len(job_desc) < 400:
+        try:
+            from backend.scrapers.generic import GenericCareerScraper
+
+            scraper = GenericCareerScraper()
+            fetched = await scraper.fetch_job_page_content(request.job_url)
+            if fetched and len(fetched) > len(job_desc):
+                job_desc = fetched
+        except Exception:
+            pass
+
+    return JobScorer.score_cv_against_job(request.markdown_content, job_desc)
 
 
 @router.get("/{cv_id}/export/{format}", response_model=CVExportResponse)

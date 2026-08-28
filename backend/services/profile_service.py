@@ -334,12 +334,29 @@ def sanitize_resume_text(text: str) -> str:
     return text
 
 
+def is_date_pattern(val: str) -> bool:
+    """Check if string is a date, year, or date range (e.g. 2026-08-28, 2024-2026, 08/28/2026)."""
+    v = val.strip()
+    if re.search(r"\b(19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b", v):
+        return True
+    if re.search(r"\b\d{1,2}[-/.]\d{1,2}[-/.]\b(19|20)\d{2}\b", v):
+        return True
+    if re.search(r"\b(19|20)\d{2}\s*[-–—/]\s*(19|20)\d{2}\b", v):
+        return True
+    if re.search(r"\b\d{1,2}[-/]\b(19|20)\d{2}\b", v):
+        return True
+    return False
+
+
 def extract_personal_info(text_clean: str, raw_original: str) -> PersonalInfo:
     """Extract contact, links, location, and name with hyphen/space repairs."""
     combined_text = f"{text_clean}\n{raw_original}"
     raw_lines = [item_line.strip() for item_line in text_clean.splitlines() if item_line.strip()]
 
-    # 1. Extract email (supports standard, mailto:, and spaced out emails)
+    # Pre-process top contact section
+    top_chunk = "\n".join(raw_lines[:15])
+
+    # 1. Extract email
     email = ""
     m_email = re.search(
         r"(?:mailto:)?([a-zA-Z0-9_.+-]+\s*@\s*[a-zA-Z0-9-]+\s*\.\s*[a-zA-Z0-9.-]+)",
@@ -348,18 +365,30 @@ def extract_personal_info(text_clean: str, raw_original: str) -> PersonalInfo:
     if m_email:
         email = re.sub(r"\s+", "", m_email.group(1)).strip(".,;")
 
-    # 2. Extract phone (supports international +40 ..., +1 ..., spaced hyphens)
+    # 2. Extract phone (supports international +40 ..., +1 ..., spaced hyphens; excludes dates)
     phone = ""
-    m_phone = re.search(
-        r"(?:(?:\+|00)\d{1,3}[\s.-]*)?(?:\(?\d{2,4}\)?[\s.-]*)?\d{3,4}[\s.-]*\d{3,4}(?:[\s.-]*\d{1,4})?",
+    # Check for labeled phone first
+    m_labeled_phone = re.search(
+        r"(?:phone|tel|mobile|cell|contact)[:\s]*([+\d\s().-]{7,25})",
         combined_text,
+        re.IGNORECASE,
     )
-    if m_phone:
-        cand = m_phone.group(0).strip(" \t-•,")
+    if m_labeled_phone:
+        cand = m_labeled_phone.group(1).strip(" \t-•,")
         digits = re.sub(r"\D", "", cand)
-        # Avoid matching standalone years (like 2020-2024)
-        if len(digits) >= 8 and not re.match(r"^(19|20)\d{2}(-(19|20)\d{2})?$", cand):
+        if len(digits) >= 8 and not is_date_pattern(cand):
             phone = re.sub(r"\s*-\s*", "-", re.sub(r"\s+", " ", cand))
+
+    if not phone:
+        m_phone = re.search(
+            r"(?:(?:\+|00)\d{1,3}[\s.-]*)?(?:\(?\d{2,4}\)?[\s.-]*)?\d{3,4}[\s.-]*\d{3,4}(?:[\s.-]*\d{1,4})?",
+            top_chunk,
+        )
+        if m_phone:
+            cand = m_phone.group(0).strip(" \t-•,")
+            digits = re.sub(r"\D", "", cand)
+            if len(digits) >= 8 and not is_date_pattern(cand):
+                phone = re.sub(r"\s*-\s*", "-", re.sub(r"\s+", " ", cand))
 
     # 3. Extract LinkedIn (reconstruct spaced hyphens e.g. 'cosmin -lavric -827126331')
     linkedin = ""

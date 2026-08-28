@@ -75,6 +75,10 @@ class CVScoreRequest(BaseModel):
         default="",
         validation_alias=AliasChoices("job_description", "description"),
     )
+    job_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("job_url", "url", "link"),
+    )
 
 
 class CVExportResponse(BaseModel):

@@ -50,17 +50,30 @@ class CVService:
         # 1. Load candidate profile
         profile = await self.profile_service.get_profile()
 
+        # Enrich short job description by fetching full live job posting if job_url is provided
+        job_desc = request.job_description.strip()
+        if request.job_url and len(job_desc) < 400:
+            try:
+                from backend.scrapers.generic import GenericCareerScraper
+
+                scraper = GenericCareerScraper()
+                fetched = await scraper.fetch_job_page_content(request.job_url)
+                if fetched and len(fetched) > len(job_desc):
+                    job_desc = fetched
+            except Exception as exc:
+                logger.debug("Failed to fetch full job posting for CV tailoring: %s", exc)
+
         # 2. Generate Tailored Markdown
         markdown_content = await self.cv_generator.generate_markdown(
             profile=profile,
-            job_description=request.job_description,
+            job_description=job_desc,
             job_title=request.job_title,
             company=request.company,
             use_ai=request.use_ai,
         )
 
         # 3. Score CV against job description
-        ats_score = JobScorer.score_cv_against_job(markdown_content, request.job_description)
+        ats_score = JobScorer.score_cv_against_job(markdown_content, job_desc)
 
         # 4. Render and store document exports
         export_paths: dict[str, str] = {}

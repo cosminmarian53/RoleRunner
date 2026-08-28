@@ -78,6 +78,7 @@ export default function CVBuilder() {
         body: JSON.stringify({
           markdown_content: generated.markdown_content,
           job_description: form.job_description,
+          job_url: form.job_url,
         }),
       });
       setScore(res);
