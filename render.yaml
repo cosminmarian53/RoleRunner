@@ -2,8 +2,9 @@ services:
   # Backend API
   - type: web
     name: rolerunner-api
-    env: docker
+    runtime: docker
     dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
     healthCheckPath: /healthz
     envVars:
@@ -19,12 +20,12 @@ services:
           name: rolerunner-redis
           property: connectionString
       - key: CORS_ORIGINS
-        value: https://rolerunner.onrender.com,http://localhost:5173
+        value: https://rolerunner-frontend.onrender.com,http://localhost:5173
 
   # Frontend Static Site
   - type: web
     name: rolerunner-frontend
-    env: static
+    runtime: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
     plan: free
