@@ -154,11 +154,8 @@ async def test_ats_form_scanner_resolves_education_geo_schedule_questions(monkey
     assert "Computer Science" in ans_map["Discipline"]
     assert ans_map["Start date year"] == "2022"
     assert ans_map["End date year"] == "2026"
-    assert "visa sponsorship" in ans_map["Are you legally authorized to work in the United States?"].lower()
-    assert (
-        "visa sponsorship"
-        in ans_map["Will you now or in the future require an employment visa to work in the US?"].lower()
-    )
+    assert ans_map["Are you legally authorized to work in the United States?"] == "No"
+    assert ans_map["Will you now or in the future require an employment visa to work in the US?"] == "Yes"
     assert (
         "25–29 hrs/week"
         in ans_map[

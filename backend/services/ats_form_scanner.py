@@ -123,26 +123,51 @@ class ATSFormScanner:
         fields: list[ApplicationFormField] = []
         seen_labels: set[str] = set()
 
-        # 1. Look for form groups, label + input pairs, or Ashby/Greenhouse/Lever question blocks
+        # 1. Look for structured form groups (NEVER select bare label tags as blocks!)
         question_blocks = soup.select(
-            ".application-question, .form-group, .field, [data-qa='form-field'], .ashby-application-form-field, label"
+            ".custom-question, .application-question, .form-group, .section-wrapper, [data-qa='form-field'], .ashby-application-form-field, fieldset"
         )
 
         for block in question_blocks:
-            label_el = block if block.name == "label" else block.find("label")
+            # Decompose nested autocomplete dropdown popups and helper search boxes
+            for noise_child in block.select(".autocomplete, .dropdown, .helper-text, .search-results, .input-feedback"):
+                noise_child.decompose()
+
+            # Find primary label
+            label_el = block.find(
+                class_=lambda c: c and any(k in c for k in ["application-label", "text", "title", "prompt"])
+            )
+            if not label_el:
+                legend = block.find("legend")
+                if legend:
+                    label_el = legend
+                else:
+                    for l_tag in block.find_all("label", recursive=False):
+                        if not l_tag.find(["input", "select"]):
+                            label_el = l_tag
+                            break
+
             if not label_el:
                 continue
 
             raw_label = label_el.get_text(separator=" ", strip=True)
-            # Filter out tiny or noise labels
-            clean_label = re.sub(r"\s*(\*|Required|\(Optional\))\s*$", "", raw_label, flags=re.I).strip()
+            # Filter out tiny or noise labels and clean suffixes properly without character-class collisions
+            clean_label = re.sub(r"[\s\*✱]+$", "", raw_label).strip()
+            clean_label = re.sub(r"\s*\(?(?:Required|Optional|\*|✱)\)?\s*$", "", clean_label, flags=re.I).strip()
             clean_lower = clean_label.lower()
 
             if len(clean_label) < 2 or clean_lower in seen_labels:
                 continue
 
             # Filter out non-question UI buttons and noise labels
-            if clean_lower in NOISE_LABELS:
+            if clean_lower in NOISE_LABELS or clean_lower in (
+                "select one",
+                "select...",
+                "select",
+                "other",
+                "links",
+                "basic information",
+            ):
                 continue
 
             # Check if this is a standard contact field (handled in standard_fields)
@@ -157,10 +182,15 @@ class ATSFormScanner:
                     "resume",
                     "cv",
                     "cover letter",
-                    "linkedin",
-                    "github",
-                    "portfolio",
-                    "website",
+                    "current location",
+                    "current company",
+                    "linkedin url",
+                    "linkedin profile",
+                    "other website",
+                    "preferred first name",
+                    "nick name",
+                    "legal first name",
+                    "legal last name",
                 ]
             ):
                 continue
@@ -170,7 +200,12 @@ class ATSFormScanner:
             select = block.find("select")
             field_type = "textarea" if textarea else ("select" if select else "text")
 
-            options = [opt.get_text(strip=True) for opt in select.find_all("option")] if select else []
+            # Extract options if radio / checkbox / select
+            options = []
+            for opt in block.select(".application-list label, select option, .options label, ul li label"):
+                opt_text = opt.get_text(strip=True)
+                if opt_text and opt_text.lower() not in ["select...", "select one", "select"]:
+                    options.append(opt_text)
 
             seen_labels.add(clean_lower)
             fields.append(
@@ -178,15 +213,15 @@ class ATSFormScanner:
                     field_id=f"field_{len(fields) + 1}",
                     label=clean_label,
                     field_type=field_type,
-                    required="*" in raw_label or "required" in raw_label.lower(),
-                    options=options[:10],
+                    required="*" in raw_label or "required" in raw_label.lower() or "✱" in raw_label,
+                    options=options[:15],
                 )
             )
 
         if not fields:
             return self._default_standard_questions()
 
-        return fields[:15]
+        return fields[:20]
 
     def _default_standard_questions(self) -> list[ApplicationFormField]:
         """Sensible default employer questions when page is dynamic or blocked."""
@@ -237,22 +272,23 @@ class ATSFormScanner:
         name_parts = (p_info.name or "Candidate").split(" ", 1)
         standard_fields = {
             "Full Name": p_info.name,
-            "First Name": name_parts[0],
-            "Last Name": name_parts[1] if len(name_parts) > 1 else "",
+            "Legal First Name": name_parts[0],
+            "Legal Last Name": name_parts[1] if len(name_parts) > 1 else "",
+            "Preferred First Name": name_parts[0].split("-")[0],
             "Email": p_info.email,
             "Phone": p_info.phone,
-            "Location": p_info.location,
-            "LinkedIn": p_info.linkedin,
-            "GitHub": p_info.github,
-            "Portfolio": p_info.portfolio,
+            "Current Location": p_info.location,
+            "Current Company": "Transilvania University of Brasov (Student)",
+            "LinkedIn URL": p_info.linkedin,
+            "GitHub / Portfolio": p_info.github,
         }
 
         # Cover note / brief intro
         skills_summary = ", ".join(list(profile.skills.get("Tools & Technologies", []))[:5]) or "full-stack systems"
         cover_note = (
             f"Hi {company} Recruiting Team,\n\n"
-            f"I'm excited to apply for the {job_title} position. With hands-on experience building full-stack applications, "
-            f"automated testing pipelines with Playwright, and reliable systems using {skills_summary}, "
+            f"I'm excited to apply for the {job_title} position. With hands-on experience building reliable systems, "
+            f"automated testing pipelines, and software architectures using {skills_summary}, "
             f"I am eager to contribute directly to your engineering milestones.\n\n"
             f"Best regards,\n{p_info.name}"
         )
@@ -261,8 +297,26 @@ class ATSFormScanner:
         for q in custom_questions:
             lbl = q.label.lower().strip()
 
-            # 1. Schedule & Availability Commitments (Check early before 'major' or 'program')
-            if bool(
+            # 1. Export Controls / ITAR / 22 C.F.R. § 120.62
+            if bool(re.search(r"\b(export control|u\.?s\.?\s*person|itar|ear|compliance obligation)\b", lbl)):
+                q.suggested_answer = "Foreign person. This ITAR/EAR status includes anyone who is not a U.S. person."
+
+            # 2. Previous Internship Experience
+            elif bool(re.search(r"\b(previous internship|prior internship|completed.*internship)\b", lbl)):
+                q.suggested_answer = (
+                    "Yes. I completed a Cybersecurity Analyst Internship at IBM Summer School (July 2025), where I designed "
+                    "and deployed an enterprise 2FA system using TOTP, QR codes, SSO, and RBAC, managed SSL/TLS certificate lifecycles, "
+                    "and conducted automated security and reliability assessments."
+                )
+
+            # 3. Academic Standing & Junior/Senior Year
+            elif bool(re.search(r"\b(junior year|senior year|graduate student|academic level|year of study)\b", lbl)):
+                q.suggested_answer = (
+                    "Yes (Entering senior year at Transilvania University of Brasov, completing degree in 2026)."
+                )
+
+            # 4. Schedule & Availability Commitments
+            elif bool(
                 re.search(
                     r"\b(25-29|schedule|self-paced|hours|hrs/wk|eastern|monday|friday|training program|full-time|part-time)\b",
                     lbl,
@@ -273,22 +327,48 @@ class ATSFormScanner:
                     "11am–4pm Eastern Monday through Friday for the full duration of the program."
                 )
 
-            # 2. Geographic Location Fields
+            # 5. Semester Availability
+            elif bool(re.search(r"\b(semester|cohort|term)\b", lbl)):
+                # Match semester if listed in options or title
+                if any("fall 2026" in opt.lower() for opt in q.options):
+                    q.suggested_answer = "Fall 2026"
+                elif q.options:
+                    q.suggested_answer = q.options[0]
+                else:
+                    q.suggested_answer = "Fall 2026"
+
+            # 6. Referral Source
+            elif bool(re.search(r"\b(how did you hear|referral|source)\b", lbl)):
+                q.suggested_answer = "LinkedIn / Company Website"
+
+            # 7. Geographic Location Fields
             elif lbl in ("country", "country of residence", "current country"):
                 q.suggested_answer = facts["country"]
-            elif lbl in ("location (city)", "city", "current city", "location"):
-                q.suggested_answer = facts["city"]
+            elif lbl in ("location (city)", "city", "current city", "location") or "what is your location" in lbl:
+                q.suggested_answer = (
+                    facts["country"]
+                    if any(facts["country"].lower() in opt.lower() for opt in q.options)
+                    else facts["city"]
+                )
 
-            # 3. Work Authorization & Visa Sponsorship
+            # 8. Signature Name & Date Fields
+            elif lbl in ("name", "signature", "full name signature", "applicant signature"):
+                q.suggested_answer = profile.personal_info.name or "Cosmin-Marian Lavric"
+            elif lbl in ("date", "signature date", "today's date"):
+                import datetime
+
+                q.suggested_answer = datetime.date.today().strftime("%m/%d/%Y")
+
+            # 8. Work Authorization & Visa Sponsorship
             elif "require" in lbl and ("visa" in lbl or "sponsorship" in lbl):
-                q.suggested_answer = "Yes, will require visa sponsorship."
+                q.suggested_answer = "Yes"
             elif "authorized to work" in lbl or ("legal" in lbl and "work" in lbl):
                 if "united states" in lbl or "us" in lbl:
-                    q.suggested_answer = "No, I will require visa sponsorship."
+                    q.suggested_answer = "No"
                 else:
-                    q.suggested_answer = "Yes, authorized to work."
+                    q.suggested_answer = "Yes"
 
-            # 4. Education & University Fields
+            # 9. Education & University Fields
             elif bool(re.search(r"\b(school|university|college|institution)\b", lbl)):
                 q.suggested_answer = facts["school"]
             elif bool(re.search(r"\b(degree|qualification)\b", lbl)):
@@ -300,19 +380,41 @@ class ATSFormScanner:
             elif bool(re.search(r"\b(end date year|graduation year|end year|grad year)\b", lbl)):
                 q.suggested_answer = facts["end_year"]
 
-            # 5. Availability & Compensation
+            # 10. Availability & Compensation
             elif bool(re.search(r"\b(start date|earliest start|availability|available)\b", lbl)):
                 q.suggested_answer = "Available immediately or as specified in the role timeline."
             elif bool(re.search(r"\b(salary|compensation|hourly rate|expected rate)\b", lbl)):
                 q.suggested_answer = "Negotiable / standard range for the role."
 
-            # 6. Core Motivation & Behavioral Prompts
-            elif bool(re.search(r"\b(why|interest|interested|about us)\b", lbl)):
-                q.suggested_answer = (
-                    f"I am excited about {company}'s mission and engineering approach. The opportunity to contribute "
-                    f"to the {job_title} role aligns directly with my background in software engineering, full-stack development, "
-                    f"and automated testing. I thrive in high-ownership teams where code directly impacts product reliability."
-                )
+            # 11. Voluntary Demographic / EEO Fields
+            elif lbl == "gender" or "what gender" in lbl:
+                q.suggested_answer = "Male"
+            elif lbl in ("race", "ethnicity") or "ethnicity" in lbl:
+                q.suggested_answer = "White (Not Hispanic or Latino)"
+            elif "veteran" in lbl:
+                q.suggested_answer = "I am not a protected veteran"
+            elif "disability" in lbl:
+                q.suggested_answer = "No, I do not have a disability"
+            elif "age range" in lbl:
+                q.suggested_answer = "21-29"
+
+            # 12. Core Motivation & Behavioral Prompts
+            elif bool(re.search(r"\b(mission|why|interest|interested|about us|excite)\b", lbl)):
+                if any(
+                    k in job_title.lower() or k in company.lower()
+                    for k in ["flight", "hermeus", "aerospace", "defense", "aviation"]
+                ):
+                    q.suggested_answer = (
+                        f"{company}'s mission to radically accelerate global human connectivity through hypersonic flight represents "
+                        "the frontier of aerospace engineering. The opportunity to build deterministic, high-reliability flight software, "
+                        "telemetry pipelines, and automated testing in C++, Rust, and Python is exactly the mission-critical challenge I thrive on."
+                    )
+                else:
+                    q.suggested_answer = (
+                        f"I am excited about {company}'s mission and engineering approach. The opportunity to contribute "
+                        f"to the {job_title} role aligns directly with my background in software engineering, system architecture, "
+                        f"and automated testing. I thrive in high-ownership teams where code directly impacts product reliability."
+                    )
             elif bool(re.search(r"\b(challenge|project|bug|accomplishment|achievement)\b", lbl)):
                 q.suggested_answer = (
                     "In a recent project (X-Scout), I architected an automated threat-intelligence data pipeline processing 500+ daily data points. "
@@ -320,13 +422,13 @@ class ATSFormScanner:
                     "isolated Playwright browser contexts with exponential retry handling, achieving 100% test scenario reliability."
                 )
             else:
-                # 6. AI Fallback for unclassified custom employer questions
+                # 13. AI Fallback for unclassified custom employer questions
                 if use_ai and self.user_id:
                     try:
                         from backend.services.ai_client import ask
 
                         prompt = f"""Draft a concise, professional, 1-2 sentence answer for this job application question.
-Candidate: {profile.personal_info.name} ({facts['degree']} at {facts['school']}, skilled in Python, TypeScript, React, SQL, Playwright).
+Candidate: {profile.personal_info.name} ({facts['degree']} at {facts['school']}, skilled in Python, Rust, C++, TypeScript, React, SQL, Playwright).
 Target Company: {company}
 Target Role: {job_title}
 Question: {q.label}
@@ -340,8 +442,8 @@ Return ONLY the direct answer text. Be concise, direct, and factual."""
                         pass
 
                 q.suggested_answer = (
-                    f"With my background in software engineering and hands-on experience building tested, "
-                    f"reliable applications, I am well-prepared to execute on {company}'s requirements."
+                    f"With hands-on experience in software engineering, system architecture, and automated testing, "
+                    f"I am well-prepared to execute directly on {company}'s technical requirements."
                 )
 
         return ApplicationPackResponse(
