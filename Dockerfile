@@ -6,11 +6,14 @@ ENV PYTHONUNBUFFERED=1 \
     UV_SYSTEM_PYTHON=1 \
     PORT=8000
 
-# Install system dependencies
+# Install system dependencies including Node.js for Codex CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     build-essential \
+    nodejs \
+    npm \
+    && npm install -g @openai/codex \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv package manager
