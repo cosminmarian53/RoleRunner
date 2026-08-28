@@ -23,6 +23,9 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+DEPLOYMENT.md
+deployment.md
+DEPLOYMENT*.md
 
 # Node / Frontend
 node_modules/
