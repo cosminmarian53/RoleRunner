@@ -122,6 +122,12 @@ class ProfileService:
             await self.repo.upsert_profile(profile.model_dump(mode="json"))
         return profile
 
+    async def delete_profile(self) -> bool:
+        """Delete candidate profile from the database."""
+        if self.repo is not None:
+            return await self.repo.delete_profile()
+        return False
+
     async def parse_and_save_text(
         self,
         text: str,

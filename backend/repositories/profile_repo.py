@@ -35,3 +35,12 @@ class ProfileRepository(BaseTenantRepository[ProfileRecord]):
             profile.data = data
         await self.session.flush()
         return profile
+
+    async def delete_profile(self) -> bool:
+        """Delete the master profile for the current user."""
+        profile = await self.get_profile()
+        if profile is not None:
+            await self.session.delete(profile)
+            await self.session.flush()
+            return True
+        return False

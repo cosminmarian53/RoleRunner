@@ -39,6 +39,17 @@ async def save_profile(
     return await service.save_profile(profile)
 
 
+@router.delete("", response_model=dict[str, str])
+async def delete_profile(
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Delete current user's master candidate profile."""
+    service = ProfileService(session, current_user.id)
+    await service.delete_profile()
+    return {"status": "deleted", "message": "Profile successfully deleted."}
+
+
 @router.post("/parse-text", response_model=ProfileUploadResponse)
 async def parse_profile_text(
     request: ProfileTextParseRequest,
