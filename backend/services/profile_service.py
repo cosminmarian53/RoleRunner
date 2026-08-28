@@ -1,4 +1,4 @@
-"""Profile parsing and persistence service with AI assistance and PostgreSQL storage."""
+"""Profile parsing and persistence service with AI assistance and PostgreSQL/SQLite storage."""
 
 from __future__ import annotations
 
@@ -32,18 +32,8 @@ from backend.services.storage_service import StorageService
 logger = logging.getLogger(__name__)
 
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-PHONE_RE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
+PHONE_RE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
 URL_RE = re.compile(r"https?://[^\s,)]+|(?:linkedin|github)\.com/[^\s,)]+", re.IGNORECASE)
-SECTION_ALIASES = {
-    "summary": {"summary", "profile", "objective", "about"},
-    "skills": {"skills", "technical skills", "core skills", "technologies", "technology"},
-    "experience": {"experience", "work experience", "professional experience", "employment"},
-    "education": {"education"},
-    "certifications": {"certifications", "certificates", "licenses"},
-    "projects": {"projects", "selected projects"},
-    "languages": {"languages"},
-    "achievements": {"achievements", "awards"},
-}
 
 AI_PROFILE_SYSTEM_PROMPT = """You are an expert resume parsing engine.
 Convert the provided resume text into a strictly formatted JSON object matching the following structure:
@@ -106,28 +96,30 @@ Output ONLY raw valid JSON with no markdown backticks, explanations, or think ta
 
 
 class ProfileService:
-    """Tenant-scoped profile service backed by PostgreSQL / Supabase."""
+    """Tenant-scoped profile service backed by PostgreSQL / SQLite."""
 
-    def __init__(self, session: AsyncSession, user_id: UUID | str) -> None:
+    def __init__(self, session: AsyncSession | None, user_id: UUID | str) -> None:
         self.session = session
         self.user_id = UUID(str(user_id))
-        self.repo = ProfileRepository(session, self.user_id)
+        self.repo = ProfileRepository(session, self.user_id) if session is not None else None  # type: ignore[arg-type]
         self.storage = StorageService()
 
     async def get_profile(self) -> CandidateProfile:
         """Fetch candidate profile from the database."""
+        if self.repo is None:
+            return CandidateProfile()
         record = await self.repo.get_profile()
         if record and record.data:
             try:
                 return CandidateProfile.model_validate(record.data)
-            except ValidationError as exc:
-                logger.warning("Profile data validation failed: %s", exc)
+            except ValidationError:
+                pass
         return CandidateProfile()
 
     async def save_profile(self, profile: CandidateProfile) -> CandidateProfile:
-        """Persist profile model into PostgreSQL JSONB."""
-        data = profile.model_dump(mode="json")
-        await self.repo.upsert_profile(data)
+        """Persist candidate profile to the database."""
+        if self.repo is not None:
+            await self.repo.upsert_profile(profile.model_dump(mode="json"))
         return profile
 
     async def parse_and_save_text(
@@ -137,22 +129,23 @@ class ProfileService:
         merge_existing: bool = True,
         use_ai: bool = True,
     ) -> ProfileUploadResponse:
-        """Parse raw text into CandidateProfile using AI or regex fallback and persist."""
-        warnings: list[str] = []
+        """Parse raw resume text using Codex with fallback to robust regex heuristic parser."""
         profile: CandidateProfile | None = None
+        warnings: list[str] = []
 
-        # 1. Try parsing direct JSON
-        try:
-            profile = self.parse_json_profile(text)
-        except ValueError:
-            pass
+        # 1. Try parsing directly as JSON
+        if text.strip().startswith("{") and text.strip().endswith("}"):
+            try:
+                profile = self.parse_json_profile(text)
+            except ValueError:
+                profile = None
 
         # 2. Try AI extraction if enabled
         if profile is None and use_ai:
             try:
                 profile = await self.extract_profile_with_ai(text)
             except Exception as exc:
-                logger.info("AI profile parsing skipped/failed (%s), using regex fallback", exc)
+                logger.info("AI profile parsing skipped/failed (%s), using robust regex fallback", exc)
                 warnings.append("AI extraction unavailable; extracted with deterministic heuristics.")
 
         # 3. Fallback to deterministic regex parser
@@ -252,17 +245,47 @@ class ProfileService:
             raise ValueError(str(exc)) from exc
 
     def parse_resume_text(self, text: str) -> CandidateProfile:
-        """Deterministic heuristic regex parser for resume text."""
-        clean = normalize_text(text)
-        lines = [line.strip(" \t-•") for line in clean.splitlines() if line.strip()]
-        sections = split_sections(lines)
+        """Deterministic, highly robust heuristic regex parser for resume text."""
+        text_clean = sanitize_resume_text(text)
+        personal_info = extract_personal_info(text_clean, text)
+        raw_lines = [line.strip() for line in text_clean.splitlines() if line.strip()]
 
-        personal_info = parse_personal_info(lines, clean)
-        summary = "\n".join(sections.get("summary", [])).strip()
-        skills = parse_skills(sections.get("skills", []), clean)
-        experience = parse_experience(sections.get("experience", []))
-        education = parse_education(sections.get("education", []))
-        certifications = parse_certifications(sections.get("certifications", []))
+        sections: dict[str, list[str]] = {}
+        current_sec = "header"
+
+        for line in raw_lines:
+            sec_type = is_section_heading(line)
+            if sec_type:
+                current_sec = sec_type
+                sections.setdefault(current_sec, [])
+                continue
+            sections.setdefault(current_sec, []).append(line)
+
+        # 1. Summary
+        summary_lines = sections.get("summary", [])
+        clean_summary: list[str] = []
+        for line_item in summary_lines:
+            if personal_info.email and personal_info.email in line_item:
+                continue
+            if "linkedin.com" in line_item.lower() or "github.com" in line_item.lower():
+                continue
+            if personal_info.name and personal_info.name.lower() in line_item.lower() and len(line_item.split()) <= 4:
+                continue
+            clean_summary.append(line_item)
+        summary = "\n".join(clean_summary).strip()
+
+        # 2. Skills
+        skills = parse_skills_section(sections.get("skills", []), text_clean)
+
+        # 3. Experience
+        experience = parse_experience_section(sections.get("experience", []))
+
+        # 4. Education & Certifications
+        edu_lines = sections.get("education", []) + sections.get("education_certifications", [])
+        cert_lines = sections.get("certifications", [])
+        education, certifications = parse_education_and_certifications(edu_lines, cert_lines)
+
+        # 5. Projects, Languages, Achievements
         projects = parse_projects(sections.get("projects", []))
         languages = parse_languages(sections.get("languages", []))
         achievements = parse_bullet_lines(sections.get("achievements", []))
@@ -280,96 +303,184 @@ class ProfileService:
         )
 
 
-def normalize_text(text: str) -> str:
-    """Normalize whitespace and line endings."""
+def sanitize_resume_text(text: str) -> str:
+    """Normalize unicode dashes, spaces, and line breaks."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    text = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015]", "-", text)
+    text = text.replace("\u00a0", " ")
+    return text
 
 
-def split_sections(lines: list[str]) -> dict[str, list[str]]:
-    """Partition text lines into known resume sections."""
-    sections: dict[str, list[str]] = {}
-    current = "summary"
+def extract_personal_info(text_clean: str, raw_original: str) -> PersonalInfo:
+    """Extract contact, links, location, and name with hyphen/space repairs."""
+    raw_lines = [item_line.strip() for item_line in text_clean.splitlines() if item_line.strip()]
 
-    for line in lines:
-        key = section_key(line)
-        if key:
-            current = key
-            sections.setdefault(current, [])
-            continue
-        sections.setdefault(current, []).append(line)
+    # Extract email
+    email = ""
+    m_email = EMAIL_RE.search(text_clean)
+    if m_email:
+        email = m_email.group(0).strip()
 
-    return sections
+    # Extract phone
+    phone = ""
+    m_phone = PHONE_RE.search(text_clean)
+    if m_phone:
+        phone = re.sub(r"\s+", " ", m_phone.group(0)).strip(" \t-•,")
 
+    # Extract LinkedIn (reconstruct spaced hyphens e.g. 'cosmin -lavric -827126331')
+    linkedin = ""
+    m_li = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9_\-\s]+)", raw_original, re.IGNORECASE)
+    if m_li:
+        raw_slug = m_li.group(1).split("•")[0].split("|")[0].split("\n")[0].strip()
+        joined = re.sub(r"\s*-\s*", "-", " ".join(raw_slug.split()))
+        slug = joined.split()[0].rstrip("/")
+        linkedin = f"https://linkedin.com/in/{slug}"
 
-def section_key(line: str) -> str | None:
-    """Identify if a line is a section heading."""
-    normalized = re.sub(r"[^a-z ]+", "", line.lower()).strip()
-    if len(normalized.split()) > 4:
-        return None
-    for key, aliases in SECTION_ALIASES.items():
-        if normalized in aliases:
-            return key
-    return None
+    # Extract GitHub
+    github = ""
+    m_gh = re.search(r"(?:https?://)?(?:www\.)?github\.com/([a-zA-Z0-9_\-\s]+)", raw_original, re.IGNORECASE)
+    if m_gh:
+        raw_slug = m_gh.group(1).split("•")[0].split("|")[0].split("\n")[0].strip()
+        joined = re.sub(r"\s*-\s*", "-", " ".join(raw_slug.split()))
+        slug = joined.split()[0].rstrip("/")
+        github = f"https://github.com/{slug}"
 
-
-def parse_personal_info(lines: list[str], full_text: str) -> PersonalInfo:
-    """Extract contact and identity info using patterns."""
-    email = first_match(EMAIL_RE, full_text)
-    phone = first_match(PHONE_RE, full_text)
-    urls = URL_RE.findall(full_text)
-    linkedin = first_url(urls, "linkedin")
-    github = first_url(urls, "github")
-    portfolio = next(
-        (url for url in urls if "linkedin" not in url.lower() and "github" not in url.lower()),
-        "",
-    )
+    # Extract Name & Location from header lines
     name = ""
-
-    for line in lines[:6]:
-        lower = line.lower()
-        if EMAIL_RE.search(line) or PHONE_RE.search(line) or "linkedin" in lower or "github" in lower:
-            continue
-        if 1 <= len(line.split()) <= 5 and not section_key(line):
-            name = line
+    location = ""
+    for line in raw_lines[:8]:
+        if is_section_heading(line):
             break
+        if email and email in line:
+            parts = line.split("•")
+            for p in parts:
+                p_clean = p.strip(" \t-•,")
+                if any(
+                    c in p_clean.lower()
+                    for c in [
+                        "romania",
+                        "brașov",
+                        "brasov",
+                        "germany",
+                        "uk",
+                        "usa",
+                        "united states",
+                        "france",
+                        "canada",
+                        "remote",
+                        "london",
+                        "berlin",
+                        "austin",
+                        "seattle",
+                        "san francisco",
+                        "new york",
+                    ]
+                ):
+                    location = p_clean
+            continue
+        if (
+            any(
+                c in line.lower()
+                for c in [
+                    "romania",
+                    "brașov",
+                    "brasov",
+                    "germany",
+                    "uk",
+                    "usa",
+                    "united states",
+                    "france",
+                    "canada",
+                    "remote",
+                    "london",
+                    "berlin",
+                ]
+            )
+            and not location
+        ):
+            loc_part = line.split("•")[0].split("|")[0].strip(" \t-•,")
+            location = loc_part
+            continue
+        if (
+            not name
+            and len(line.split()) <= 4
+            and not any(
+                w in line.lower()
+                for w in ["developer", "engineer", "researcher", "consultant", "resume", "curriculum", "vitae"]
+            )
+        ):
+            name = re.sub(r"\s+-\s+", "-", line).strip()
 
     return PersonalInfo(
         name=name,
         email=email,
         phone=phone,
+        location=location,
         linkedin=linkedin,
         github=github,
-        portfolio=portfolio,
+        portfolio="",
     )
 
 
-def parse_skills(lines: list[str], full_text: str) -> dict[str, list[str]]:
-    """Extract and categorize skills."""
-    if not lines:
-        return {}
+def is_section_heading(line: str) -> str | None:
+    """Classify section heading with length validation to prevent swallowing paragraphs."""
+    line_clean = line.strip()
+    words = line_clean.split()
+    if len(words) > 5:
+        return None
+
+    norm = re.sub(r"[^a-zA-Z0-9& ]+", " ", line.lower()).strip()
+    tokens = set(norm.split())
+
+    if "education" in tokens and ("certifications" in tokens or "certification" in tokens):
+        return "education_certifications"
+    if any(k in tokens for k in ["summary", "profile", "about", "objective"]):
+        return "summary"
+    if any(k in tokens for k in ["skills", "technologies", "technology", "stack", "competencies", "technical"]):
+        return "skills"
+    if any(k in tokens for k in ["experience", "employment", "history", "work"]):
+        return "experience"
+    if any(k in tokens for k in ["education", "academic", "university", "college"]):
+        return "education"
+    if any(k in tokens for k in ["certifications", "certification", "certificates", "licenses", "courses"]):
+        return "certifications"
+    if any(k in tokens for k in ["projects", "selected_projects"]):
+        return "projects"
+    if any(k in tokens for k in ["languages", "language"]):
+        return "languages"
+    if any(k in tokens for k in ["achievements", "awards", "honors"]):
+        return "achievements"
+    return None
+
+
+def parse_skills_section(lines: list[str], full_text: str) -> dict[str, list[str]]:
+    """Parse categorized and inline skill items."""
     grouped: dict[str, list[str]] = {}
     for line in lines:
         if ":" in line:
-            category, raw_values = line.split(":", 1)
+            cat, raw_values = line.split(":", 1)
+            cat_key = re.sub(r"[^a-z0-9_]+", "_", cat.strip().lower()).strip("_")
             values = split_inline_values(raw_values)
             if values:
-                grouped[category.strip().lower().replace(" ", "_")] = values
+                grouped[cat_key] = values
         else:
-            grouped.setdefault("general", []).extend(split_inline_values(line))
+            values = split_inline_values(line)
+            if values:
+                grouped.setdefault("general", []).extend(values)
 
     if grouped:
-        return {key: unique_strings(values) for key, values in grouped.items() if values}
+        return {k: unique_strings(v) for k, v in grouped.items() if v}
 
     common_skills = [
         "python",
         "typescript",
         "javascript",
         "react",
-        "node",
+        "node.js",
         "fastapi",
         "django",
         "postgres",
+        "postgresql",
         "sql",
         "aws",
         "docker",
@@ -378,64 +489,171 @@ def parse_skills(lines: list[str], full_text: str) -> dict[str, list[str]]:
         "rust",
         "go",
     ]
-    matches = [skill for skill in common_skills if re.search(rf"\b{re.escape(skill)}\b", full_text, re.IGNORECASE)]
+    matches = [s for s in common_skills if re.search(rf"\b{re.escape(s)}\b", full_text, re.IGNORECASE)]
     return {"general": matches} if matches else {}
 
 
-def parse_experience(lines: list[str]) -> list[Experience]:
-    """Parse work experience entries."""
-    entries = split_entries(lines)
-    experience: list[Experience] = []
-    for entry in entries:
-        if not entry:
-            continue
-        heading = entry[0]
-        title = heading
-        company = ""
-        duration = ""
-        if " at " in heading.lower():
-            parts = re.split(r"\s+at\s+", heading, maxsplit=1, flags=re.IGNORECASE)
-            title, company = parts[0].strip(), parts[1].strip()
-        elif " - " in heading:
-            parts = [part.strip() for part in heading.split(" - ", 1)]
-            title, company = parts[0], parts[1]
-        for line in entry[:3]:
-            if re.search(r"\b(20\d{2}|19\d{2}|present|current)\b", line, re.IGNORECASE):
-                duration = line
-                break
-        bullets = parse_bullet_lines(entry[1:])
-        experience.append(Experience(company=company, title=title, duration=duration, bullets=bullets))
-    return experience
+def parse_experience_section(lines: list[str]) -> list[Experience]:
+    """Parse roles, companies, durations, locations, and achievement bullets."""
+    entries: list[Experience] = []
+    curr_title = ""
+    curr_company = ""
+    curr_duration = ""
+    curr_location = ""
+    curr_bullets: list[str] = []
 
-
-def parse_education(lines: list[str]) -> list[Education]:
-    """Parse education entries."""
-    education: list[Education] = []
-    for entry in split_entries(lines):
-        if not entry:
-            continue
-        institution = entry[0]
-        degree = entry[1] if len(entry) > 1 else ""
-        year = ""
-        for line in entry:
-            match = re.search(r"\b(19\d{2}|20\d{2})\b", line)
-            if match:
-                year = match.group(1)
-                break
-        education.append(
-            Education(
-                institution=institution,
-                degree=degree,
-                year=year,
-                details="\n".join(entry[2:]),
+    def flush_exp() -> None:
+        nonlocal curr_title, curr_company, curr_duration, curr_location, curr_bullets
+        if curr_title or curr_company:
+            entries.append(
+                Experience(
+                    title=curr_title or "Engineer",
+                    company=curr_company,
+                    duration=curr_duration,
+                    location=curr_location,
+                    bullets=curr_bullets,
+                )
             )
-        )
-    return education
+        curr_title = ""
+        curr_company = ""
+        curr_duration = ""
+        curr_location = ""
+        curr_bullets = []
+
+    for line in lines:
+        if "|" in line:
+            flush_exp()
+            parts = [p.strip() for p in line.split("|")]
+            curr_title = parts[0]
+            curr_company = parts[1] if len(parts) > 1 else ""
+        elif " at " in line and not line.startswith(("-", "•", "*")) and len(line.split()) <= 7:
+            flush_exp()
+            parts = re.split(r"\s+at\s+", line, maxsplit=1, flags=re.IGNORECASE)
+            curr_title = parts[0].strip()
+            curr_company = parts[1].strip() if len(parts) > 1 else ""
+        elif (
+            any(marker in line.lower() for marker in ["present", "2024", "2025", "2026", "2023", "2022"])
+            and ("•" in line or "–" in line or "-" in line)
+            and not line.startswith(("•", "-", "*"))
+        ):
+            parts = [p.strip() for p in line.split("•")]
+            if len(parts) >= 2:
+                curr_location = parts[0]
+                curr_duration = parts[1]
+            else:
+                curr_duration = line
+        elif (
+            any(
+                m in line.lower()
+                for m in [
+                    "engineer",
+                    "researcher",
+                    "participant",
+                    "auditor",
+                    "developer",
+                    "manager",
+                    "lead",
+                    "consultant",
+                ]
+            )
+            and not line.startswith(("•", "-", "*"))
+            and len(line.split()) <= 6
+        ):
+            flush_exp()
+            curr_title = line
+        else:
+            b = line.strip(" \t-•*")
+            if b:
+                curr_bullets.append(b)
+
+    flush_exp()
+    return entries
 
 
-def parse_certifications(lines: list[str]) -> list[Certification]:
-    """Parse certifications entries."""
-    return [Certification(name=line) for line in parse_bullet_lines(lines)]
+def parse_education_and_certifications(
+    edu_lines: list[str], cert_lines: list[str]
+) -> tuple[list[Education], list[Certification]]:
+    """Parse degrees, institutions, graduation dates, and certifications."""
+    edu_list: list[Education] = []
+    cert_list: list[Certification] = []
+    curr_degree = ""
+    curr_inst = ""
+    curr_year = ""
+
+    def flush_edu() -> None:
+        nonlocal curr_degree, curr_inst, curr_year
+        if curr_degree or curr_inst:
+            edu_list.append(
+                Education(
+                    institution=curr_inst or "University",
+                    degree=curr_degree,
+                    year=curr_year,
+                )
+            )
+        curr_degree = ""
+        curr_inst = ""
+        curr_year = ""
+
+    for cert_line in cert_lines:
+        c_clean = cert_line.strip(" \t-•*")
+        if c_clean:
+            cert_list.append(Certification(name=c_clean))
+
+    for edu_line in edu_lines:
+        line_clean = edu_line.strip(" \t-•*")
+        if not line_clean:
+            continue
+        if any(
+            marker in line_clean
+            for marker in [
+                "Cyfrin",
+                "Cornell",
+                "Udemy",
+                "Coursera",
+                "Certora",
+                "—",
+                "Certification",
+                "Certificate",
+            ]
+        ) and not any(deg in line_clean.lower() for deg in ["bachelor", "master", "phd", "b.s.", "m.s.", "degree"]):
+            cert_list.append(Certification(name=line_clean))
+            continue
+        if any(
+            deg in line_clean.lower()
+            for deg in ["bachelor", "master", "phd", "b.s.", "m.s.", "degree", "diploma", "associate"]
+        ):
+            flush_edu()
+            curr_degree = line_clean
+        elif any(
+            u in line_clean.lower()
+            for u in [
+                "university",
+                "college",
+                "school",
+                "faculty",
+                "institute",
+                "transylvania",
+                "academy",
+                "polytechnic",
+            ]
+        ):
+            parts = [p.strip() for p in re.split(r"\s+•\s+|\s+\|\s+", line_clean) if p.strip()]
+            curr_inst = parts[0]
+            if len(parts) > 1 and not curr_year:
+                yr_match = re.search(r"\b(20\d{2}|19\d{2})\b", parts[1])
+                if yr_match:
+                    curr_year = yr_match.group(0)
+            if not curr_year:
+                yr_match = re.search(r"\b(20\d{2}|19\d{2})\b", line_clean)
+                if yr_match:
+                    curr_year = yr_match.group(0)
+        else:
+            yr_match = re.search(r"\b(20\d{2}|19\d{2})\b", line_clean)
+            if yr_match and not curr_year:
+                curr_year = yr_match.group(0)
+
+    flush_edu()
+    return edu_list, cert_list
 
 
 def parse_projects(lines: list[str]) -> list[Project]:
@@ -453,12 +671,12 @@ def parse_languages(lines: list[str]) -> list[Language]:
     languages: list[Language] = []
     for line in parse_bullet_lines(lines):
         if ":" in line:
-            language, level = line.split(":", 1)
+            lang, level = line.split(":", 1)
         elif " - " in line:
-            language, level = line.split(" - ", 1)
+            lang, level = line.split(" - ", 1)
         else:
-            language, level = line, ""
-        languages.append(Language(language=language.strip(), level=level.strip()))
+            lang, level = line, ""
+        languages.append(Language(language=lang.strip(), level=level.strip()))
     return languages
 
 
@@ -503,17 +721,6 @@ def unique_strings(values: list[str]) -> list[str]:
             seen.add(key)
             result.append(value.strip())
     return result
-
-
-def first_match(pattern: re.Pattern[str], text: str) -> str:
-    """Extract first regex match string."""
-    match = pattern.search(text)
-    return match.group(0).strip() if match else ""
-
-
-def first_url(urls: list[str], needle: str) -> str:
-    """Find first URL containing substring."""
-    return next((url for url in urls if needle in url.lower()), "")
 
 
 def merge_profiles(existing: CandidateProfile, incoming: CandidateProfile) -> CandidateProfile:

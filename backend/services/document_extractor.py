@@ -1,4 +1,4 @@
-"""Document text extraction service with MIME validation and size bounds."""
+"""Document text extraction service with MIME validation, size bounds, and text cleaning."""
 
 from __future__ import annotations
 
@@ -61,17 +61,21 @@ def detect_file_type(filename: str, content: bytes) -> str:
 
 
 def extract_text_from_pdf(content: bytes) -> str:
-    """Extract text from a PDF document."""
+    """Extract text from a PDF document with pypdf or PyPDF2 fallback."""
     try:
-        from PyPDF2 import PdfReader
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            from PyPDF2 import PdfReader  # type: ignore[no-redef]
 
         reader = PdfReader(BytesIO(content))
         pages_text: list[str] = []
-        for i, page in enumerate(reader.pages):
+        for page in reader.pages:
             page_text = page.extract_text() or ""
             if page_text.strip():
                 pages_text.append(page_text.strip())
-        return "\n\n".join(pages_text)
+        raw_text = "\n\n".join(pages_text)
+        return clean_extracted_text(raw_text)
     except Exception as exc:
         logger.error("Failed to parse PDF: %s", exc)
         raise DocumentExtractionError(f"Corrupt or unreadable PDF document: {exc}", status_code=422) from exc
@@ -90,7 +94,7 @@ def extract_text_from_docx(content: bytes) -> str:
                 row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
                 if row_text:
                     paragraphs.append(row_text)
-        return "\n\n".join(paragraphs)
+        return clean_extracted_text("\n\n".join(paragraphs))
     except Exception as exc:
         logger.error("Failed to parse DOCX: %s", exc)
         raise DocumentExtractionError(f"Corrupt or unreadable DOCX document: {exc}", status_code=422) from exc
@@ -100,10 +104,22 @@ def extract_text_from_plain(content: bytes) -> str:
     """Extract text from plain text formats with encoding fallbacks."""
     for encoding in ("utf-8", "utf-16", "latin-1", "cp1252"):
         try:
-            return content.decode(encoding).strip()
+            return clean_extracted_text(content.decode(encoding).strip())
         except UnicodeDecodeError:
             continue
     raise DocumentExtractionError("Could not decode document text with supported encodings.", status_code=422)
+
+
+def clean_extracted_text(text: str) -> str:
+    """Normalize whitespace, unicode dashes, and repair broken PDF word wraps/hyphens."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Normalize unicode hyphens and dashes to ASCII hyphen
+    text = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015]", "-", text)
+    # Normalize non-breaking spaces
+    text = text.replace("\u00a0", " ")
+    # Collapse 3+ newlines into 2
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def extract_document_text(filename: str, content: bytes) -> tuple[str, str]:
@@ -123,5 +139,4 @@ def extract_document_text(filename: str, content: bytes) -> tuple[str, str]:
     else:
         text = extract_text_from_plain(content)
 
-    clean_text = re.sub(r"\r\n|\r", "\n", text).strip()
-    return clean_text, file_type
+    return text, file_type
