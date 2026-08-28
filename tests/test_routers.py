@@ -265,3 +265,22 @@ async def test_application_crud_endpoints(test_app_and_session):
     err_json = check_resp.json()
     assert err_json["code"] == "NOT_FOUND"
     assert "request_id" in err_json
+
+
+@pytest.mark.asyncio
+async def test_feedback_endpoint(test_app_and_session) -> None:
+    client, _ = test_app_and_session
+    payload = {
+        "rating": 5,
+        "category": "feature_request",
+        "message": "Love the universal job matching! Please add Discord alerts.",
+        "email": "tester@rolerunner.app",
+        "page_url": "http://test/jobs",
+    }
+    resp = await client.post("/api/feedback", json=payload)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["status"] == "received"
+    assert data["rating"] == 5
+    assert data["category"] == "feature_request"
+    assert data["message"] == payload["message"]

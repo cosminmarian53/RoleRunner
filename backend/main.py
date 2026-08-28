@@ -15,7 +15,7 @@ from backend.config import settings
 from backend.db.session import close_db, get_engine, init_db
 from backend.middleware.errors import register_error_handlers
 from backend.middleware.request_id import RequestIDMiddleware
-from backend.routers import agent, applications, cv, jobs, profile
+from backend.routers import agent, applications, cv, feedback, jobs, profile
 from backend.services.redis_service import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(cv.router)
     app.include_router(applications.router)
     app.include_router(agent.router)
+    app.include_router(feedback.router)
 
     return app
 
