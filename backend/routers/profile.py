@@ -29,6 +29,7 @@ async def get_profile(
 
 
 @router.post("", response_model=CandidateProfile)
+@router.post("/form", response_model=CandidateProfile)
 async def save_profile(
     profile: CandidateProfile,
     current_user: CurrentUser = Depends(get_current_user),
