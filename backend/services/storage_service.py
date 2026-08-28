@@ -35,7 +35,7 @@ class StorageService:
 
         Returns storage key path: `resumes/{user_id}/{file_id}_{clean_filename}`
         """
-        uid = str(user_id)
+        uid = str(user_id) if isinstance(user_id, UUID) else user_id
         file_id = str(uuid4())
         clean_name = Path(filename).name.replace(" ", "_")
         storage_path = f"resumes/{uid}/{file_id}_{clean_name}"
