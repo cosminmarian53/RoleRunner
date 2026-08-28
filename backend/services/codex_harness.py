@@ -10,6 +10,9 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import UUID
+
+from backend.services.codex_credentials import get_credentials_manager
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +49,14 @@ class CodexHarness:
     No API keys needed — leverages ChatGPT subscription via device auth.
     """
 
-    def __init__(self, codex_home: str | None = None) -> None:
-        self.codex_home = str(Path(codex_home or "~/.codex").expanduser())
+    user_id: str | None = None
+
+    def __init__(self, codex_home: str | None = None, *, user_id: str | UUID | None = None) -> None:
+        self.user_id = str(user_id) if user_id is not None else None
+        if self.user_id is not None:
+            self.codex_home = str(get_credentials_manager().get_user_codex_home(self.user_id))
+        else:
+            self.codex_home = str(Path(codex_home or "~/.codex").expanduser())
         self.session = CodexSession(codex_home=self.codex_home)
         self._login_proc: asyncio.subprocess.Process | None = None
         self._login_output: list[str] = []
@@ -55,8 +64,15 @@ class CodexHarness:
         self._check_existing_session()
 
     def _env(self) -> dict[str, str]:
-        """Return a CLI environment with terminal decoration disabled."""
-        Path(self.codex_home).mkdir(parents=True, exist_ok=True)
+        """Return a CLI environment with terminal decoration disabled and isolated CODEX_HOME."""
+        if self.user_id:
+            get_credentials_manager().get_user_codex_home(self.user_id)
+        else:
+            Path(self.codex_home).mkdir(parents=True, exist_ok=True)
+            try:
+                Path(self.codex_home).chmod(0o700)
+            except OSError:
+                pass
         return {
             **os.environ,
             "NO_COLOR": "1",
