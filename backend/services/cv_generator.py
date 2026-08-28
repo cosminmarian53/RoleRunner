@@ -10,6 +10,21 @@ from backend.models.profile import CandidateProfile
 logger = logging.getLogger(__name__)
 
 
+def _format_category_name(raw_category: str) -> str:
+    """Transform snake_case or raw category strings into clean CV section labels."""
+    cleaned = raw_category.replace("_", " ").strip()
+    lower = cleaned.lower()
+    if lower in ("tools software", "tools and software", "tools"):
+        return "Tools & Technologies"
+    if lower in ("core competencies", "competencies", "core skills"):
+        return "Core Competencies"
+    if lower in ("technical skills", "tech skills"):
+        return "Technical Skills"
+    if lower in ("languages frameworks", "frameworks"):
+        return "Languages & Frameworks"
+    return cleaned.title()
+
+
 def generate_deterministic_cv_markdown(
     profile: CandidateProfile,
     job_title: str = "",
@@ -20,7 +35,7 @@ def generate_deterministic_cv_markdown(
 
     # 1. Header & Title
     name = profile.personal_info.name or "Candidate"
-    target_role = job_title or "Professional"
+    target_role = job_title or getattr(profile.personal_info, "title", "") or "Professional"
     lines.append(f"# {name}")
     lines.append(f"**{target_role}**")
     lines.append("")
@@ -34,11 +49,14 @@ def generate_deterministic_cv_markdown(
     if profile.personal_info.location:
         contact_parts.append(profile.personal_info.location)
     if profile.personal_info.github:
-        contact_parts.append(f"[GitHub]({profile.personal_info.github})")
+        gh = profile.personal_info.github
+        contact_parts.append(f"[GitHub]({gh if gh.startswith('http') else f'https://{gh}'})")
     if profile.personal_info.linkedin:
-        contact_parts.append(f"[LinkedIn]({profile.personal_info.linkedin})")
+        li = profile.personal_info.linkedin
+        contact_parts.append(f"[LinkedIn]({li if li.startswith('http') else f'https://{li}'})")
     if profile.personal_info.portfolio:
-        contact_parts.append(f"[Portfolio]({profile.personal_info.portfolio})")
+        pf = profile.personal_info.portfolio
+        contact_parts.append(f"[Portfolio]({pf if pf.startswith('http') else f'https://{pf}'})")
 
     if contact_parts:
         lines.append(" • ".join(contact_parts))
@@ -58,7 +76,9 @@ def generate_deterministic_cv_markdown(
     if achievements:
         lines.append("## Key Achievements")
         for ach in achievements:
-            lines.append(f"- {ach.strip()}")
+            clean_ach = ach.strip().lstrip("-•*▪ ").strip()
+            if clean_ach:
+                lines.append(f"- {clean_ach}")
         lines.append("")
 
     # 3. Core Skills & Competencies
@@ -67,48 +87,63 @@ def generate_deterministic_cv_markdown(
         lines.append("## Core Skills & Competencies")
         for cat, items in skills_map.items():
             if items:
-                lines.append(f"- **{cat}:** {', '.join(items)}")
+                formatted_cat = _format_category_name(cat)
+                lines.append(f"- **{formatted_cat}:** {', '.join(items)}")
         lines.append("")
 
     # 4. Professional Experience
     if profile.experience:
         lines.append("## Experience")
         for exp in profile.experience:
-            role_header = f"### {exp.title} | {exp.company}"
-            duration = exp.duration or getattr(exp, "start_date", "")
+            role_parts = [exp.title.strip(), exp.company.strip()]
+            duration = exp.duration.strip() if getattr(exp, "duration", "") else ""
+            if not duration:
+                start = getattr(exp, "start_date", "").strip()
+                end = getattr(exp, "end_date", "").strip()
+                if start and end:
+                    duration = f"{start} – {end}"
+                elif start:
+                    duration = f"{start} – Present"
             if duration:
-                role_header += f" | {duration}"
-            lines.append(role_header)
+                role_parts.append(duration)
+
+            lines.append(f"### {' | '.join(role_parts)}")
+
             bullets = exp.bullets or getattr(exp, "bullet_points", [])
             for bullet in bullets:
-                lines.append(f"- {bullet.strip()}")
+                # Handle multiline or piped bullets from paste/parsing
+                parts = bullet.replace("|", "\n").split("\n") if "|" in bullet else [bullet]
+                for p in parts:
+                    clean_b = p.strip().lstrip("-•*▪ ").strip()
+                    if clean_b:
+                        lines.append(f"- {clean_b}")
             lines.append("")
 
     # 5. Projects
     if profile.projects:
-        lines.append("## Projects")
+        lines.append("## Projects & Key Initiatives")
         for proj in profile.projects:
-            proj_header = f"### {proj.name}"
             tech = proj.tech or ", ".join(getattr(proj, "technologies", []))
-            if tech:
-                proj_header += f" ({tech})"
-            lines.append(proj_header)
+            header = f"### {proj.name}" + (f" ({tech})" if tech else "")
+            lines.append(header)
             if proj.description:
-                lines.append(f"- {proj.description.strip()}")
+                lines.append(f"- {proj.description.strip().lstrip('-•*▪ ')}")
             for b in getattr(proj, "bullet_points", []):
-                lines.append(f"- {b.strip()}")
+                clean_b = b.strip().lstrip("-•*▪ ").strip()
+                if clean_b:
+                    lines.append(f"- {clean_b}")
             lines.append("")
 
     # 6. Education & Certifications
     if profile.education or profile.certifications:
         lines.append("## Education & Certifications")
         for cert in profile.certifications:
-            date_str = cert.date
-            lines.append(f"- **{cert.name}** - {cert.issuer} ({date_str})")
+            date_str = f" ({cert.date})" if cert.date else ""
+            lines.append(f"- **{cert.name}** – {cert.issuer}{date_str}")
         for edu in profile.education:
-            degree_str = f"{edu.degree} - {edu.details}" if edu.details else edu.degree
-            year_str = edu.year
-            lines.append(f"- **{degree_str}** - {edu.institution} ({year_str})")
+            degree_str = f"{edu.degree} – {edu.details}" if edu.details else edu.degree
+            year_str = f" ({edu.year})" if edu.year else ""
+            lines.append(f"- **{degree_str}** – {edu.institution}{year_str}")
         lines.append("")
 
     return "\n".join(lines).strip()
@@ -132,35 +167,40 @@ class CVGenerator:
         if not use_ai:
             return generate_deterministic_cv_markdown(profile, job_title, company)
 
-        prompt = f"""You are an expert career strategist and professional resume writer.
-Given the candidate's master profile and the target job description, generate a tailored, professional single-column ATS-friendly CV in Markdown.
+        prompt = f"""You are an expert career strategist and professional executive resume writer.
+Given the candidate's master profile and the target job description, generate an impeccably formatted, ATS-optimized CV in Markdown.
 
-STRICT REQUIREMENTS:
-1. Preserve all factual truth from the master profile; DO NOT invent metrics, companies, or dates.
-2. Select and highlight the skills, achievements, and bullet points most relevant to the target job description.
-3. Keep the format concise, clean, and adhering to this structure:
+STRICT FORMATTING & CONTENT RULES:
+1. Preserve all factual truth from the master profile; DO NOT fabricate companies, dates, or metrics.
+2. Structure all achievements, responsibilities, and project points into distinct markdown bullet points starting with `- `.
+3. NEVER output raw unbulleted paragraphs for job experiences or achievements. Every single responsibility must be a bullet point `- `.
+4. Convert all skill category names into polished Title Case (e.g. `Tools & Technologies`, `Core Competencies`).
+5. Adhere strictly to this hierarchy:
    # [Candidate Name]
    **[Target Role Title]**
-   [Email] • [Phone] • [Location] • [Links]
+   [Email] • [Phone] • [Location] • [GitHub Link] • [LinkedIn Link]
 
-   [Tailored Executive Summary]
+   [Tailored Executive Summary emphasizing alignment with the role]
 
    ## Key Achievements
-   - [Bulleted achievements with metrics]
+   - [Bulleted achievement 1 with metrics]
+   - [Bulleted achievement 2 with metrics]
 
    ## Core Skills & Competencies
-   - **[Category]:** [Comma separated skills]
+   - **[Category 1]:** [Skill, Skill, Skill]
+   - **[Category 2]:** [Skill, Skill, Skill]
 
    ## Experience
-   ### [Title] | [Company] | [Date Range]
-   - [Relevant action-oriented achievement bullets]
+   ### [Job Title] | [Company Name] | [Date Range]
+   - [Action-driven bullet point starting with strong verb and measurable impact]
+   - [Action-driven bullet point]
 
    ## Projects & Key Initiatives
-   ### [Project/Initiative Name]
-   - [Bulleted details]
+   ### [Project Name] ([Tech Stack])
+   - [Project impact, architectural decisions, and deliverables]
 
    ## Education & Certifications
-   - [Degree/Certification bullets]
+   - **[Degree / Certificate]** – [Institution] ([Year])
 
 TARGET JOB DETAILS:
 Title: {job_title}
@@ -171,14 +211,13 @@ Description:
 CANDIDATE MASTER PROFILE (JSON):
 {profile.model_dump_json(indent=2)}
 
-Return ONLY the final tailored Markdown document without introductory or concluding conversational text.
-"""
+Return ONLY the clean tailored Markdown document without conversational preamble or closing notes."""
+
         try:
             from backend.services.ai_client import ask
 
             ai_output = await ask(prompt, user_id=self.user_id)
             cleaned: str = ai_output.strip()
-            # Remove ```markdown blocks if present
             if cleaned.startswith("```markdown"):
                 cleaned = cleaned[len("```markdown") :].strip()
             if cleaned.startswith("```"):

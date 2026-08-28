@@ -226,7 +226,7 @@ export default function CVBuilder() {
 
           {/* Document Markdown Canvas */}
           {generated?.markdown_content ? (
-            <div className="p-5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-xs text-slate-200 font-sans leading-relaxed max-h-[600px] overflow-y-auto space-y-3 prose prose-invert max-w-none">
+            <div className="cv-document-sheet max-h-[700px] overflow-y-auto">
               <ReactMarkdown>{generated.markdown_content}</ReactMarkdown>
             </div>
           ) : (

@@ -660,3 +660,80 @@ input:focus, textarea:focus, select:focus {
 .file-button input {
   display: none;
 }
+
+/* Executive ATS CV Preview Document Sheet */
+.cv-document-sheet {
+  background: #090d16;
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 16px;
+  padding: 32px 36px;
+  color: #e2e8f0;
+  font-family: var(--font-sans, "Inter", sans-serif);
+  line-height: 1.6;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+}
+
+.cv-document-sheet h1 {
+  font-size: 22px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  margin-bottom: 3px;
+}
+
+.cv-document-sheet h2 {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #818cf8;
+  border-bottom: 1px solid rgba(79, 70, 229, 0.35);
+  padding-bottom: 4px;
+  margin-top: 22px;
+  margin-bottom: 10px;
+}
+
+.cv-document-sheet h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-top: 14px;
+  margin-bottom: 4px;
+}
+
+.cv-document-sheet p {
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-top: 3px;
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.cv-document-sheet ul {
+  list-style-type: disc !important;
+  padding-left: 22px !important;
+  margin-top: 6px !important;
+  margin-bottom: 12px !important;
+}
+
+.cv-document-sheet li {
+  font-size: 12px;
+  color: #cbd5e1;
+  line-height: 1.6;
+  margin-bottom: 5px;
+  padding-left: 2px;
+}
+
+.cv-document-sheet li::marker {
+  color: #818cf8;
+}
+
+.cv-document-sheet strong {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.cv-document-sheet a {
+  color: #818cf8;
+  text-decoration: underline;
+}
