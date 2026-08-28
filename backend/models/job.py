@@ -115,3 +115,31 @@ class JobScoreResponse(BaseModel):
 
     jobs: list[JobListing] = Field(default_factory=list)
     scored_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+
+class JobIntelligenceRequest(BaseModel):
+    """Request for deep AI analysis and interview/company framing of a job."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    job_title: str
+    company: str = ""
+    description: str = ""
+    summary: str = ""
+    link: str = ""
+
+
+class JobIntelligenceResponse(BaseModel):
+    """Deep AI analysis, strategic framing, and interview process intelligence."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    role_summary: str = ""
+    framing_strategy: str = ""
+    company_insights: str = ""
+    interview_stages: list[str] = Field(default_factory=list)
+    talking_points: list[str] = Field(default_factory=list)
+    questions_to_ask: list[str] = Field(default_factory=list)
+    key_technologies: list[str] = Field(default_factory=list)
+    culture_notes: str = ""
+    analyzed_at: str = Field(default_factory=lambda: datetime.now().isoformat())
