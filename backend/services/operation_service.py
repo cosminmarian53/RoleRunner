@@ -16,9 +16,9 @@ from backend.services.redis_service import get_redis_client
 class OperationService:
     """Service to manage operation lifecycle and broadcast real-time updates."""
 
-    def __init__(self, session: AsyncSession, user_id: UUID) -> None:
-        self.repo: OperationRepository = OperationRepository(session, user_id)
-        self.user_id: UUID = user_id
+    def __init__(self, session: AsyncSession, user_id: UUID | str) -> None:
+        self.user_id: UUID = UUID(str(user_id)) if not isinstance(user_id, UUID) else user_id
+        self.repo: OperationRepository = OperationRepository(session, self.user_id)
         self.channel_name: str = f"user:{self.user_id}:operations"
 
     async def _publish(self, event_type: str, data: dict[str, Any]) -> None:
@@ -47,7 +47,7 @@ class OperationService:
         return op_data
 
     async def update_progress(
-        self, op_id: UUID, progress: int, message: str = "", status: str | None = None
+        self, op_id: UUID | str, progress: int, message: str = "", status: str | None = None
     ) -> dict[str, Any] | None:
         """Update operation progress/status and broadcast the update."""
         op = await self.repo.update_progress(op_id, progress, message, status)
@@ -57,7 +57,7 @@ class OperationService:
         await self._publish("operation_updated", op_data)
         return op_data
 
-    async def mark_succeeded(self, op_id: UUID, result_ref: str = "") -> dict[str, Any] | None:
+    async def mark_succeeded(self, op_id: UUID | str, result_ref: str = "") -> dict[str, Any] | None:
         """Mark operation as succeeded and broadcast."""
         op = await self.repo.mark_succeeded(op_id, result_ref)
         if not op:
@@ -66,7 +66,7 @@ class OperationService:
         await self._publish("operation_succeeded", op_data)
         return op_data
 
-    async def mark_failed(self, op_id: UUID, error: str) -> dict[str, Any] | None:
+    async def mark_failed(self, op_id: UUID | str, error: str) -> dict[str, Any] | None:
         """Mark operation as failed and broadcast."""
         op = await self.repo.mark_failed(op_id, error)
         if not op:
@@ -75,7 +75,7 @@ class OperationService:
         await self._publish("operation_failed", op_data)
         return op_data
 
-    async def get_operation(self, op_id: UUID) -> dict[str, Any] | None:
+    async def get_operation(self, op_id: UUID | str) -> dict[str, Any] | None:
         """Retrieve an operation without broadcasting."""
         op = await self.repo.get_by_id(op_id)
         if not op:

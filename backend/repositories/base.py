@@ -20,15 +20,16 @@ class BaseTenantRepository(Generic[ModelT]):
     All SELECT, UPDATE, DELETE queries automatically append `WHERE user_id = self.user_id`.
     """
 
-    def __init__(self, model_class: type[ModelT], session: AsyncSession, user_id: UUID) -> None:
+    def __init__(self, model_class: type[ModelT], session: AsyncSession, user_id: UUID | str) -> None:
         self.model_class = model_class
         self.session = session
-        self.user_id = user_id
+        self.user_id = UUID(str(user_id)) if not isinstance(user_id, UUID) else user_id
 
-    async def get_by_id(self, entity_id: UUID) -> ModelT | None:
+    async def get_by_id(self, entity_id: UUID | str) -> ModelT | None:
         """Fetch a single record by primary key, isolated to the current user."""
+        uid = UUID(str(entity_id)) if not isinstance(entity_id, UUID) else entity_id
         stmt = select(self.model_class).where(
-            self.model_class.id == entity_id,  # type: ignore[attr-defined]
+            self.model_class.id == uid,  # type: ignore[attr-defined]
             self.model_class.user_id == self.user_id,  # type: ignore[attr-defined]
         )
         result = await self.session.execute(stmt)
@@ -53,7 +54,7 @@ class BaseTenantRepository(Generic[ModelT]):
         await self.session.flush()
         return entity
 
-    async def delete_by_id(self, entity_id: UUID) -> bool:
+    async def delete_by_id(self, entity_id: UUID | str) -> bool:
         """Delete an entity by id, ensuring it belongs to the current user."""
         entity = await self.get_by_id(entity_id)
         if entity is None:

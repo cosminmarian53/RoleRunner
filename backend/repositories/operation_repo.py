@@ -14,7 +14,7 @@ from backend.repositories.base import BaseTenantRepository
 class OperationRepository(BaseTenantRepository[OperationRecord]):
     """Tenant-isolated repository for background operation lifecycle."""
 
-    def __init__(self, session: AsyncSession, user_id: UUID) -> None:
+    def __init__(self, session: AsyncSession, user_id: UUID | str) -> None:
         super().__init__(OperationRecord, session, user_id)
 
     async def create_operation(
@@ -37,7 +37,7 @@ class OperationRepository(BaseTenantRepository[OperationRecord]):
 
     async def update_progress(
         self,
-        op_id: UUID,
+        op_id: UUID | str,
         progress: int,
         message: str = "",
         status: str | None = None,
@@ -55,7 +55,7 @@ class OperationRepository(BaseTenantRepository[OperationRecord]):
         await self.session.flush()
         return op
 
-    async def mark_succeeded(self, op_id: UUID, result_ref: str = "") -> OperationRecord | None:
+    async def mark_succeeded(self, op_id: UUID | str, result_ref: str = "") -> OperationRecord | None:
         """Mark operation as succeeded with 100% progress."""
         op = await self.get_by_id(op_id)
         if op is None:
@@ -68,7 +68,7 @@ class OperationRepository(BaseTenantRepository[OperationRecord]):
         await self.session.flush()
         return op
 
-    async def mark_failed(self, op_id: UUID, error: str) -> OperationRecord | None:
+    async def mark_failed(self, op_id: UUID | str, error: str) -> OperationRecord | None:
         """Mark operation as failed with error details."""
         op = await self.get_by_id(op_id)
         if op is None:

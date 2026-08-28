@@ -68,4 +68,10 @@ exclude = ["alembic"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["."]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "fakeredis>=2.26.0",
+]
