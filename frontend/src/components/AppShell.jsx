@@ -89,10 +89,12 @@ export default function AppShell() {
           </button>
 
           <ProviderStatus compact />
-          <div className="agent-line flex items-center gap-2 text-[11px] text-slate-400">
-            <span className={`status-dot ${connected ? "online bg-emerald-400" : "offline bg-rose-400"}`} />
-            <span className="truncate">{agent?.message || (connected ? "Agent stream live" : "Agent stream offline")}</span>
-          </div>
+          {agent?.message && (
+            <div className="agent-line flex items-center gap-2 text-[11px] text-indigo-300 bg-indigo-950/40 border border-indigo-500/20 px-2.5 py-1.5 rounded-lg">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="truncate">{agent.message}</span>
+            </div>
+          )}
         </div>
       </aside>
 

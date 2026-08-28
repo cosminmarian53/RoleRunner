@@ -41,6 +41,13 @@ async def get_optional_user(
     if not token:
         token = request.headers.get("X-Session-ID") or request.headers.get("x-session-id")
 
+    # 3. Query parameter session_id / token (for EventSource SSE streams)
+    if not token and "query_string" in getattr(request, "scope", {}):
+        try:
+            token = request.query_params.get("session_id") or request.query_params.get("token")
+        except Exception:
+            pass
+
     if not token:
         return None
 
