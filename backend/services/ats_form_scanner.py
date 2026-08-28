@@ -587,22 +587,17 @@ class ATSFormScanner:
                 q.suggested_answer = "21-29"
 
             # 16. Core Motivation & Behavioral Prompts
-            elif bool(re.search(r"\b(mission|why|interest|interested|about us|excite)\b", lbl)):
-                if any(
-                    k in job_title.lower() or k in company.lower()
-                    for k in ["flight", "hermeus", "aerospace", "defense", "aviation"]
-                ):
-                    q.suggested_answer = (
-                        f"{company}'s mission to radically accelerate global human connectivity through hypersonic flight represents "
-                        "the frontier of aerospace engineering. The opportunity to build deterministic, high-reliability flight software, "
-                        "telemetry pipelines, and automated testing in C++, Rust, and Python is exactly the mission-critical challenge I thrive on."
-                    )
-                else:
-                    q.suggested_answer = (
-                        f"I am excited about {company}'s mission and engineering approach. The opportunity to contribute "
-                        f"to the {job_title} role aligns directly with my background in software engineering, system architecture, "
-                        f"and automated testing. I thrive in high-ownership teams where code directly impacts product reliability."
-                    )
+            elif bool(
+                re.search(
+                    r"\b(mission|why|interest|interested|about us|excite|tell us a bit about yourself|why you'?d like to join)\b",
+                    lbl,
+                )
+            ):
+                q.suggested_answer = (
+                    f"I am excited about {company}'s engineering focus and mission. The opportunity to contribute "
+                    f"to the {job_title} role aligns directly with my background in software engineering, system architecture, "
+                    f"and automated testing pipelines. I thrive in high-ownership environments where robust code directly drives impact."
+                )
             elif bool(re.search(r"\b(challenge|project|bug|accomplishment|achievement)\b", lbl)):
                 q.suggested_answer = (
                     "In a recent project (X-Scout), I architected an automated threat-intelligence data pipeline processing 500+ daily data points. "
