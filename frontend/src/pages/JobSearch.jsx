@@ -11,7 +11,7 @@ export default function JobSearch() {
     location_filter: "",
     date_posted_filter: "",
     remote_only: false,
-    limit: 20,
+    limit: 30,
   });
   const [results, setResults] = useState(null);
   const [selectedJobIntel, setSelectedJobIntel] = useState(null);
@@ -51,7 +51,7 @@ export default function JobSearch() {
             <option value="30d">Past month</option>
           </select>
         </label>
-        <label className="number-field">Limit<input type="number" min="1" max="100" value={form.limit} onChange={(event) => update("limit", Number(event.target.value))} /></label>
+        <label className="number-field">Limit<input type="number" min="1" max="150" value={form.limit} onChange={(event) => update("limit", Number(event.target.value))} /></label>
         <label className="checkbox"><input type="checkbox" checked={form.remote_only} onChange={(event) => update("remote_only", event.target.checked)} /> Remote only</label>
         <label className="full-field">Target career pages, one URL per line<textarea rows="2" value={form.target_companies} onChange={(event) => update("target_companies", event.target.value)} placeholder="https://boards.greenhouse.io/company" /></label>
         <button className="button primary" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <Search size={17} />} Search</button>
@@ -60,8 +60,21 @@ export default function JobSearch() {
       <div className="results-heading"><div><h2>{results ? `${results.total_found ?? results.jobs?.length ?? 0} opportunities` : "Results"}</h2>{results?.query && <span className="muted">for {results.query}</span>}</div>{results?.jobs?.length > 0 && <button className="button secondary" onClick={scoreAll} disabled={busy}><Sparkles size={16} /> Score all</button>}</div>
       <section className="job-grid">
         {(results?.jobs || []).map((job) => <article className="job-card" key={job.id || job.link}>
-          <div className="job-top"><span className="source-label">{job.source?.replaceAll("_", " ") || "job"}</span>{job.relevance_score != null && <span className={`score ${job.relevance_score >= 8 ? "high" : ""}`}>{job.relevance_score.toFixed(1)}</span>}</div>
-          <h3>{job.title}</h3><p className="company">{job.company || "Company not listed"}</p><p className="muted">{job.location || "Location not listed"}{job.date_posted ? ` · ${job.date_posted}` : ""}</p>
+          <div className="job-top">
+            <div className="source-badges">
+              <span className="source-label">{job.source?.replaceAll("_", " ") || "job"}</span>
+              {job.source_platform && <span className="platform-badge">{job.source_platform}</span>}
+            </div>
+            {job.relevance_score != null && <span className={`score ${job.relevance_score >= 8 ? "high" : ""}`}>{job.relevance_score.toFixed(1)}</span>}
+          </div>
+          <div className="job-header-row">
+            {job.logo_url && <img className="company-logo" src={job.logo_url} alt="" loading="lazy" />}
+            <div>
+              <h3>{job.title}</h3>
+              <p className="company">{job.company || "Company not listed"}</p>
+            </div>
+          </div>
+          <p className="muted">{job.location || "Location not listed"}{job.date_posted ? ` · ${job.date_posted}` : ""}{job.salary ? ` · ${job.salary}` : ""}{job.employment_type ? ` · ${job.employment_type}` : ""}</p>
           <p className="job-summary">{job.summary || "Open the listing to review the full description."}</p>
           {!!job.match_reasons?.length && <div className="reason-list">{job.match_reasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>}
           <div className="job-footer">

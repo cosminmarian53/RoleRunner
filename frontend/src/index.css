@@ -136,6 +136,12 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .job-card { min-height: 270px; display: flex; flex-direction: column; padding: 17px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .job-top, .job-footer { display: flex; justify-content: space-between; align-items: center; }
 .source-label, .recommendation { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.source-badges { display: flex; align-items: center; gap: 5px; }
+.platform-badge { padding: 2px 6px; border-radius: 4px; background: #1a2535; color: var(--accent); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.job-header-row { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0 6px; }
+.company-logo { width: 36px; height: 36px; border-radius: 6px; object-fit: contain; background: #1e2226; border: 1px solid var(--border); flex-shrink: 0; }
+.job-header-row h3 { margin: 0 0 4px; font-size: 16px; }
+.job-header-row .company { margin: 0; }
 .job-card h3 { margin: 18px 0 6px; font-size: 16px; }
 .company { margin: 0 0 5px; color: #bcdaf0; font-size: 13px; }
 .job-card > .muted { font-size: 11px; }
