@@ -144,36 +144,38 @@ export default function JobSearch() {
           {/* Primary Input Row */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
             {/* Job Title / Role */}
-            <div className="md:col-span-6 relative">
+            <div className="md:col-span-6">
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Type your job name or role
               </label>
-              <div className="relative">
-                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <div className="flex items-center px-3.5 bg-slate-900/90 border border-slate-700 rounded-xl focus-within:border-indigo-500 transition">
+                <Search size={18} className="text-slate-400 flex-none mr-2.5" />
                 <input
                   required
                   type="text"
                   value={form.query}
                   onChange={(e) => update("query", e.target.value)}
                   placeholder="e.g. Marketing Manager, Nurse, Software Engineer, Data Lead"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition"
+                  className="w-full bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500 py-3 px-0 focus:ring-0 focus:border-0"
+                  style={{ border: "none", boxShadow: "none", background: "transparent", padding: "10px 0" }}
                 />
               </div>
             </div>
 
             {/* Location */}
-            <div className="md:col-span-4 relative">
+            <div className="md:col-span-4">
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Location (Optional)
               </label>
-              <div className="relative">
-                <MapPin size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <div className="flex items-center px-3.5 bg-slate-900/90 border border-slate-700 rounded-xl focus-within:border-indigo-500 transition">
+                <MapPin size={18} className="text-slate-400 flex-none mr-2.5" />
                 <input
                   type="text"
                   value={form.location_filter}
                   onChange={(e) => update("location_filter", e.target.value)}
                   placeholder="e.g. Europe, United States, Remote, London"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-900/90 border border-slate-700 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition"
+                  className="w-full bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500 py-3 px-0 focus:ring-0 focus:border-0"
+                  style={{ border: "none", boxShadow: "none", background: "transparent", padding: "10px 0" }}
                 />
               </div>
             </div>
