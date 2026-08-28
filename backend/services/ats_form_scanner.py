@@ -176,14 +176,46 @@ class ATSFormScanner:
             if len(clean_label) < 2 or clean_lower in seen_labels:
                 continue
 
-            # Filter out non-question UI buttons and noise labels
-            if clean_lower in NOISE_LABELS or clean_lower in (
-                "select one",
-                "select...",
-                "select",
-                "other",
-                "links",
-                "basic information",
+            # Filter out non-question UI buttons, JD headings, and company FAQ headers
+            # Candidate-directed questions should never be filtered as JD headers
+            is_candidate_directed = any(
+                k in clean_lower
+                for k in [
+                    "do you",
+                    "are you",
+                    "would you",
+                    "tell us",
+                    "your interest",
+                    "good fit",
+                    "want to work",
+                    "why are you",
+                ]
+            )
+
+            # Filter out non-question UI buttons, JD headings, and company FAQ headers
+            if not is_candidate_directed and (
+                clean_lower in NOISE_LABELS
+                or clean_lower
+                in (
+                    "select one",
+                    "select...",
+                    "select",
+                    "other",
+                    "links",
+                    "basic information",
+                )
+                or bool(
+                    re.search(
+                        r"^(?:must[\s-]have|nice[\s-]to[\s-]have|good[\s-]to[\s-]have|requirements?|qualifications?|responsibilities|benefits|perks|compensation|overview|about (?:us|the role|the team|the company|the position)|who we are|how we (?:work|hire)|life at .*|culture at .*|equal (?:opportunity|employment).*)$",
+                        clean_lower,
+                    )
+                )
+                or bool(
+                    re.search(
+                        r"^(?:what (?:does\s+.*|is\s+.*|we\s+(?:do|offer|look for|are looking for)|you(?:\'ll|\s+will)\s+(?:do|bring|own|need)|it means to be.*)|why\s+(?:join\s+us|work\s+here|\w+\??$)|who\s+we\s+are)",
+                        clean_lower,
+                    )
+                )
             ):
                 continue
 
@@ -432,6 +464,38 @@ class ATSFormScanner:
             if lower in noise_exact:
                 continue
             if any(lower.startswith(prefix) for prefix in noise_prefixes):
+                continue
+
+            # Candidate-directed questions should never be filtered as JD headers
+            is_candidate_directed = any(
+                k in lower
+                for k in [
+                    "do you",
+                    "are you",
+                    "would you",
+                    "tell us",
+                    "your interest",
+                    "good fit",
+                    "want to work",
+                    "why are you",
+                ]
+            )
+
+            # Skip job description headings, company marketing questions, and requirement sections
+            if not is_candidate_directed and (
+                bool(
+                    re.search(
+                        r"^(?:must[\s-]have|nice[\s-]to[\s-]have|good[\s-]to[\s-]have|requirements?|qualifications?|responsibilities|benefits|perks|compensation|overview|about (?:us|the role|the team|the company|the position)|who we are|how we (?:work|hire)|life at .*|culture at .*|equal (?:opportunity|employment).*)$",
+                        lower,
+                    )
+                )
+                or bool(
+                    re.search(
+                        r"^(?:what (?:does\s+.*|is\s+.*|we\s+(?:do|offer|look for|are looking for)|you(?:\'ll|\s+will)\s+(?:do|bring|own|need)|it means to be.*)|why\s+(?:join\s+us|work\s+here|\w+\??$)|who\s+we\s+are)",
+                        lower,
+                    )
+                )
+            ):
                 continue
 
             # Skip multi-sentence descriptive paragraphs unless it is a legal declaration

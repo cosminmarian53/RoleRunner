@@ -352,3 +352,60 @@ async def test_universal_master_form_pack() -> None:
         "in-person onboarding"
         in ans["Would you be able to attend mandatory in-person onboarding or travel as required?"]
     )
+
+
+@pytest.mark.asyncio
+async def test_jamf_job_description_does_not_extract_jd_headers_as_questions() -> None:
+    """Verify marketing headers (Must-have, Nice-to-have, Why Jamf?, What does Jamf do?) are filtered out."""
+    jamf_posting_text = """
+    Software Engineer II | AI & Agentic Systems
+    Remote - US
+
+    What does Jamf do?
+    Jamf is the leader in managing and securing Apple at work.
+
+    What it means to be a Jamf?
+    At Jamf, we empower people to be their authentic selves.
+
+    Why Jamf?
+    We are growing rapidly and investing heavily in AI & Agentic Systems.
+
+    Must-have
+    - 2+ years of experience with Python or TypeScript
+    - Experience building AI agents, LLM tool-calling, and automated workflows
+
+    Nice-to-have
+    - Experience with FastAPI, Docker, vector databases
+    - Knowledge of macOS / Apple ecosystems
+    """
+
+    profile = CandidateProfile(
+        personal_info=PersonalInfo(
+            name="Cosmin-Marian Lavric",
+            location="Brasov, Romania (EET)",
+            portfolio="https://github.com/cosminmarian53/security-audit-portofolio",
+            github="https://github.com/cosminmarian53",
+            linkedin="https://www.linkedin.com/in/cosmin-lavric-827126331/",
+        ),
+    )
+
+    scanner = ATSFormScanner()
+    pack = await scanner.generate_application_pack(
+        profile=profile,
+        job_title="Software Engineer II | AI & Agentic Systems",
+        company="Jamf",
+        job_description=jamf_posting_text,
+        job_url="",
+    )
+
+    labels = [q.label for q in pack.custom_questions]
+    assert "Must-have" not in labels
+    assert "Nice-to-have" not in labels
+    assert "What does Jamf do?" not in labels
+    assert "What it means to be a Jamf?" not in labels
+    assert "Why Jamf?" not in labels
+
+    # Should fall back cleanly to the 17-question universal master form tailored for Jamf
+    assert len(pack.custom_questions) >= 15
+    ans = {q.label: q.suggested_answer for q in pack.custom_questions}
+    assert "Jamf" in ans["Why are you interested in this role and company?"]
