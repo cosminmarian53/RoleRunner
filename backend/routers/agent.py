@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, Request
@@ -12,36 +14,53 @@ from backend.security.jwt import CurrentUser
 from backend.services.ai_client import get_harness, get_provider_status
 from backend.services.redis_service import get_redis_client
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
 async def sse_event_generator(user_id: str, request: Request) -> AsyncGenerator[str, None]:
     """Generate SSE events for a specific user's operation channel."""
-    client = get_redis_client()
-    pubsub = client.pubsub()
+    pubsub = None
     channel_name = f"user:{user_id}:operations"
-    await pubsub.subscribe(channel_name)
+
+    try:
+        client = get_redis_client()
+        pubsub = client.pubsub()
+        await pubsub.subscribe(channel_name)
+    except Exception as exc:
+        logger.debug("Redis pubsub unavailable for SSE (local dev fallback): %s", exc)
+        pubsub = None
 
     try:
         while True:
             if await request.is_disconnected():
                 break
 
-            # Use get_message with timeout to allow heartbeats
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15.0)
-
-            if message is not None:
-                # message["data"] contains the JSON payload from operation_service
-                data = message["data"]
-                if isinstance(data, bytes):
-                    data = data.decode("utf-8")
-                yield f"data: {data}\n\n"
+            if pubsub is not None:
+                try:
+                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15.0)
+                    if message is not None:
+                        data = message["data"]
+                        if isinstance(data, bytes):
+                            data = data.decode("utf-8")
+                        yield f"data: {data}\n\n"
+                    else:
+                        yield ": heartbeat\n\n"
+                except Exception as exc:
+                    logger.debug("Redis pubsub read error during stream: %s", exc)
+                    yield ": heartbeat\n\n"
+                    await asyncio.sleep(5.0)
             else:
-                # Heartbeat to keep connection alive
                 yield ": heartbeat\n\n"
+                await asyncio.sleep(5.0)
     finally:
-        await pubsub.unsubscribe(channel_name)
-        await pubsub.close()
+        if pubsub is not None:
+            try:
+                await pubsub.unsubscribe(channel_name)
+                await pubsub.close()
+            except Exception:
+                pass
 
 
 @router.get("/status")
