@@ -47,7 +47,11 @@ export default function Profile() {
 
   const save = async (event) => {
     event.preventDefault(); setBusy(true); setNotice("");
-    try { await api("/profile/form", { method: "POST", body: JSON.stringify({ ...profile, skills: parseSkills() }) }); setNotice("Profile saved."); }
+    try {
+      const saved = await api("/profile", { method: "POST", body: JSON.stringify({ ...profile, skills: parseSkills() }) });
+      setProfile({ ...emptyProfile, ...saved, personal_info: { ...emptyProfile.personal_info, ...saved.personal_info } });
+      setNotice("Profile saved.");
+    }
     catch (error) { setNotice(error.message); }
     finally { setBusy(false); }
   };
@@ -55,7 +59,13 @@ export default function Profile() {
   const upload = async (event) => {
     const file = event.target.files?.[0]; if (!file) return;
     const body = new FormData(); body.append("file", file); setBusy(true); setNotice("Extracting profile from CV...");
-    try { const result = await api("/profile/upload", { method: "POST", body }); setProfile({ ...emptyProfile, ...result }); setNotice("CV imported. Review and save your profile."); }
+    try {
+      const result = await api("/profile/upload", { method: "POST", body });
+      const parsed = result.profile || result;
+      setProfile({ ...emptyProfile, ...parsed, personal_info: { ...emptyProfile.personal_info, ...parsed.personal_info } });
+      setSkillsText(Object.entries(parsed.skills || {}).map(([category, values]) => `${category}: ${values.join(", ")}`).join("\n"));
+      setNotice("CV imported. Review and save your profile.");
+    }
     catch (error) { setNotice(error.message); }
     finally { setBusy(false); event.target.value = ""; }
   };
