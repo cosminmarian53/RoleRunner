@@ -6,6 +6,43 @@ from backend.models.profile import CandidateProfile
 
 logger = logging.getLogger(__name__)
 
+WEB3_ONLY_SKILLS: set[str] = {
+    "foundry",
+    "slither",
+    "echidna",
+    "certora",
+    "aderyn",
+    "solidity",
+    "move",
+    "solana",
+    "anchor",
+    "synpress",
+    "groth16",
+    "poseidon hashing",
+    "zero-knowledge proofs",
+    "zk proofs",
+    "damn vulnerable defi",
+    "ethernaut",
+    "smart contract",
+    "smart contracts",
+    "web3auth",
+}
+
+
+def clean_company_name(company: str) -> str:
+    """Strip job-board suffixes, location tags, and legal designations from company names."""
+    if not company:
+        return ""
+    c = company.strip()
+    c = re.sub(
+        r"\s*(\||-)\s*(Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters|Early\s*Career).*$",
+        "",
+        c,
+        flags=re.I,
+    ).strip()
+    c = re.sub(r"\s*•\s*.*$", "", c).strip()
+    return c
+
 
 def clean_candidate_headline(job_title: str, profile_title: str = "") -> str:
     """
@@ -85,17 +122,64 @@ def _format_category_name(raw_category: str) -> str:
     return cleaned.title()
 
 
+def prune_and_rank_skills_for_role(
+    skills_map: dict[str, list[str]],
+    target_job_title: str,
+    target_job_desc: str = "",
+    company: str = "",
+) -> dict[str, list[str]]:
+    """Filter out mismatched niche skills (e.g. Web3/DeFi tools for standard Web2 roles)."""
+    ctx = f"{target_job_title} {company} {target_job_desc}".lower()
+    is_web3 = any(
+        w in ctx
+        for w in [
+            "web3",
+            "solidity",
+            "smart contract",
+            "crypto",
+            "blockchain",
+            "defi",
+            "protocol",
+            "ethereum",
+            "solana",
+            "evm",
+            "cantina",
+            "sherlock",
+            "cyfrin",
+            "codehawks",
+            "auditor",
+            "audit",
+        ]
+    )
+
+    pruned: dict[str, list[str]] = {}
+    for cat, items in skills_map.items():
+        filtered_items: list[str] = []
+        for item in items:
+            item_clean = item.strip()
+            item_lower = item_clean.lower()
+            # If target role is NOT Web3, omit specialized smart contract tools
+            if not is_web3 and item_lower in WEB3_ONLY_SKILLS:
+                continue
+            filtered_items.append(item_clean)
+        if filtered_items:
+            pruned[cat] = filtered_items
+    return pruned
+
+
 def generate_deterministic_cv_markdown(
     profile: CandidateProfile,
     job_title: str = "",
     company: str = "",
+    job_description: str = "",
 ) -> str:
     """Deterministic template generator that transforms CandidateProfile into structured ATS Markdown."""
     lines: list[str] = []
+    clean_comp = clean_company_name(company)
+    target_role = clean_candidate_headline(job_title, getattr(profile.personal_info, "title", ""))
 
     # 1. Header & Title
     name = profile.personal_info.name or "Candidate"
-    target_role = clean_candidate_headline(job_title, getattr(profile.personal_info, "title", ""))
     lines.append(f"# {name}")
     lines.append(f"**{target_role}**")
     lines.append("")
@@ -122,14 +206,45 @@ def generate_deterministic_cv_markdown(
         lines.append(" • ".join(contact_parts))
         lines.append("")
 
-    # Executive Summary
-    summary = profile.summary.strip() or getattr(profile.personal_info, "summary", "").strip()
-    if summary:
-        if company:
-            lines.append(f"{summary} Targeting the {target_role} role at {company}.")
-        else:
-            lines.append(summary)
-        lines.append("")
+    # Executive Summary (Domain-Tailored)
+    ctx = f"{job_title} {company} {job_description}".lower()
+    is_web3 = any(
+        w in ctx
+        for w in [
+            "web3",
+            "solidity",
+            "smart contract",
+            "crypto",
+            "blockchain",
+            "defi",
+            "ethereum",
+            "solana",
+            "cyfrin",
+            "codehawks",
+            "cantina",
+            "auditor",
+            "audit",
+        ]
+    )
+
+    if is_web3:
+        summary_text = (
+            f"Security researcher and blockchain software engineer with top contest rankings and deep expertise "
+            f"in Rust, Solidity, and formal verification. Targeting the {target_role} role at {clean_comp}."
+            if clean_comp
+            else "Security researcher and blockchain software engineer specializing in smart contracts and distributed protocols."
+        )
+    else:
+        summary_text = (
+            f"Software engineering student with strong hands-on experience in full-stack web technologies, "
+            f"automated testing pipelines, and building secure, performant software systems using TypeScript, Python, React, and Node.js. "
+            f"Targeting the {target_role} role at {clean_comp}."
+            if clean_comp
+            else "Software engineer with experience in full-stack web technologies, automated testing, and building secure, scalable systems."
+        )
+
+    lines.append(summary_text)
+    lines.append("")
 
     # 2. Key Achievements (if present)
     achievements = profile.achievements or getattr(profile, "key_achievements", [])
@@ -141,8 +256,10 @@ def generate_deterministic_cv_markdown(
                 lines.append(f"- {clean_ach}")
         lines.append("")
 
-    # 3. Core Skills & Competencies
-    skills_map = profile.skills or getattr(profile, "technical_skills", {})
+    # 3. Core Skills & Competencies (Domain-Pruned)
+    raw_skills = profile.skills or getattr(profile, "technical_skills", {})
+    skills_map = prune_and_rank_skills_for_role(raw_skills, job_title, job_description, company=clean_comp)
+
     if skills_map:
         lines.append("## Core Skills & Competencies")
         for cat, items in skills_map.items():
@@ -171,7 +288,6 @@ def generate_deterministic_cv_markdown(
 
             bullets = exp.bullets or getattr(exp, "bullet_points", [])
             for bullet in bullets:
-                # Handle multiline or piped bullets from paste/parsing
                 parts = bullet.replace("|", "\n").split("\n") if "|" in bullet else [bullet]
                 for p in parts:
                     clean_b = p.strip().lstrip("-•*▪ ").strip()
@@ -225,51 +341,62 @@ class CVGenerator:
     ) -> str:
         """Generate tailored CV Markdown content."""
         headline = clean_candidate_headline(job_title, getattr(profile.personal_info, "title", ""))
+        clean_comp = clean_company_name(company)
 
         if not use_ai:
-            return generate_deterministic_cv_markdown(profile, job_title, company)
+            return generate_deterministic_cv_markdown(profile, job_title, clean_comp, job_description)
 
-        prompt = f"""You are an expert career strategist and professional executive resume writer.
-Given the candidate's master profile and the target job description, generate an impeccably formatted, ATS-optimized CV in Markdown.
+        prompt = f"""You are an elite executive career strategist and technical resume writer.
+Given the candidate's master profile and the target job description, generate an impeccably tailored, ATS-optimized CV in Markdown.
 
-STRICT FORMATTING & CONTENT RULES:
-1. Preserve all factual truth from the master profile; DO NOT fabricate companies, dates, or metrics.
-2. Structure all achievements, responsibilities, and project points into distinct markdown bullet points starting with `- `.
-3. NEVER output raw unbulleted paragraphs for job experiences or achievements. Every single responsibility must be a bullet point `- `.
-4. Convert all skill category names into polished Title Case (e.g. `Tools & Technologies`, `Core Competencies`).
-5. Choose a clean, professional candidate headline (recommended: `{headline}`) representing the candidate's qualification level, NEVER verbatim echoing messy employer requisition IDs, locations, or seasonal dates.
-6. Adhere strictly to this hierarchy:
-   # [Candidate Name]
-   **{headline}**
-   [Email] • [Phone] • [Location] • [GitHub Link] • [LinkedIn Link]
+CRITICAL DOMAIN-AWARE TAILORING RULES:
+1. DOMAIN FILTERING & SKILL PRUNING:
+   - Carefully inspect the TARGET JOB domain (e.g. General Software Engineering / Web / Full-Stack vs. Web3 / DeFi vs. Cybersecurity).
+   - If the target job is a general web or software engineering role (e.g. Notion, Google, Stripe, Palantir), STRICTLY OMIT specialized Web3/DeFi tools (Foundry, Slither, Echidna, Certora, Aderyn, Move, Solidity, Zero-Knowledge Proofs, Groth16, DeFi CTFs) from Core Skills and Executive Summary.
+   - Instead, prioritize and feature general software engineering technologies present in the candidate's profile: TypeScript, JavaScript, Python, C++, React, Node.js, PostgreSQL, MongoDB, Docker, Git, CI/CD, Linux, Automated Testing (Playwright), REST APIs, and Software Quality.
+2. ADAPTIVE EXECUTIVE SUMMARY:
+   - Craft a compelling, customized 2-3 sentence executive summary tailored directly to the target role and company ({clean_comp or 'the company'}).
+   - Emphasize relevant engineering strengths (full-stack web development, automated testing, scalable architectures, and clean code) rather than mismatched niche domain keywords.
+3. BULLETS & DELIVERABLES:
+   - Every single bullet under Experience and Projects MUST start with `- ` and a strong action verb.
+   - Reframe project and experience bullets to emphasize core software deliverables, systems architecture, automated testing suites, and performance improvements.
+4. HEADLINE & COMPANY:
+   - Use candidate headline: `{headline}`.
+   - Use clean company name: `{clean_comp}`.
 
-   [Tailored Executive Summary emphasizing alignment with the role]
+STRICT ATS HIERARCHY:
+# [Candidate Name]
+**{headline}**
+[Email] • [Phone] • [Location] • [GitHub Link] • [LinkedIn Link] • [Portfolio Link]
 
-   ## Key Achievements
-   - [Bulleted achievement 1 with metrics]
-   - [Bulleted achievement 2 with metrics]
+[Tailored Executive Summary]
 
-   ## Core Skills & Competencies
-   - **[Category 1]:** [Skill, Skill, Skill]
-   - **[Category 2]:** [Skill, Skill, Skill]
+## Key Achievements
+- [Achievement bullet 1 with measurable impact]
+- [Achievement bullet 2 with measurable impact]
 
-   ## Experience
-   ### [Job Title] | [Company Name] | [Date Range]
-   - [Action-driven bullet point starting with strong verb and measurable impact]
-   - [Action-driven bullet point]
+## Core Skills & Competencies
+- **Tools & Technologies:** [Clean, relevant tools list]
+- **Core Competencies:** [Clean, relevant competencies list]
+- **Languages & Frameworks:** [TypeScript, Python, JavaScript, C++, Rust, React, Node.js, SQL]
 
-   ## Projects & Key Initiatives
-   ### [Project Name] ([Tech Stack])
-   - [Project impact, architectural decisions, and deliverables]
+## Experience
+### [Job Title] | [Company] | [Dates]
+- [Action-driven bullet point]
+- [Action-driven bullet point]
 
-   ## Education & Certifications
-   - **[Degree / Certificate]** – [Institution] ([Year])
+## Projects & Key Initiatives
+### [Project Name] ([Tech Stack])
+- [Architecture, implementation, and impact]
+
+## Education & Certifications
+- **[Degree / Certificate]** – [Institution] ([Year])
 
 TARGET JOB DETAILS:
 Title: {job_title}
-Company: {company}
+Company: {clean_comp}
 Description:
-{job_description[:4000]}
+{job_description[:5000]}
 
 CANDIDATE MASTER PROFILE (JSON):
 {profile.model_dump_json(indent=2)}
@@ -293,4 +420,4 @@ Return ONLY the clean tailored Markdown document without conversational preamble
         except Exception as exc:
             logger.warning("AI CV generation failed, falling back to deterministic template: %s", exc)
 
-        return generate_deterministic_cv_markdown(profile, job_title, company)
+        return generate_deterministic_cv_markdown(profile, job_title, clean_comp, job_description)

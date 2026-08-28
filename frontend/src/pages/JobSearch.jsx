@@ -97,10 +97,15 @@ export default function JobSearch() {
   };
 
   const handleTailorCV = (job) => {
+    const cleanCompany = (job.company || "")
+      .replace(/\s*(\||-)\s*(Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters).*$/i, "")
+      .replace(/\s*•\s*.*$/, "")
+      .trim();
+
     navigate("/cv", {
       state: {
         job_title: job.title,
-        company: job.company || "",
+        company: cleanCompany,
         job_url: job.link || "",
         job_description: job.description || job.summary || "",
       },

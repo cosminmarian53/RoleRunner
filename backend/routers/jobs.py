@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.session import get_db
@@ -183,3 +184,30 @@ async def get_job_intelligence(
 
     intel_svc = JobIntelligenceService(user_id=current_user.id)
     return await intel_svc.generate_intelligence(request, profile)
+
+
+class FetchJobDescriptionRequest(BaseModel):
+    url: str
+
+
+class FetchJobDescriptionResponse(BaseModel):
+    url: str
+    description: str
+    character_count: int
+
+
+@router.post("/fetch-description", response_model=FetchJobDescriptionResponse)
+async def fetch_job_description(
+    request: FetchJobDescriptionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> FetchJobDescriptionResponse:
+    """Fetch and extract full text requirements for any live job posting URL."""
+    from backend.scrapers.generic import GenericCareerScraper
+
+    scraper = GenericCareerScraper()
+    description = await scraper.fetch_job_page_content(request.url)
+    return FetchJobDescriptionResponse(
+        url=request.url,
+        description=description,
+        character_count=len(description),
+    )

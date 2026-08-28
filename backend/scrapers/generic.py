@@ -81,6 +81,30 @@ class GenericCareerScraper:
             if resp.status_code != 200:
                 return ""
             soup = BeautifulSoup(resp.text, "html.parser")
+
+            # 1. Try JSON-LD JobPosting schema first (handles Ashby, Greenhouse, Lever, etc.)
+            for script in soup.find_all("script", type="application/ld+json"):
+                try:
+                    import json
+
+                    raw_json = script.string or ""
+                    if not raw_json.strip():
+                        continue
+                    data = json.loads(raw_json)
+                    items = data if isinstance(data, list) else [data]
+                    for item in items:
+                        if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                            raw_desc = item.get("description", "")
+                            if raw_desc and len(raw_desc.strip()) > 100:
+                                s_desc = BeautifulSoup(raw_desc, "html.parser")
+                                desc_text = s_desc.get_text(separator="\n").strip()
+                                lines = [line.strip() for line in desc_text.split("\n") if line.strip()]
+                                if lines:
+                                    return "\n\n".join(lines[:200])
+                except Exception:
+                    pass
+
+            # 2. Fallback to HTML container extraction
             for el in soup(["script", "style", "nav", "footer", "header", "noscript", "svg", "button"]):
                 el.decompose()
             text = soup.get_text(separator="\n").strip()

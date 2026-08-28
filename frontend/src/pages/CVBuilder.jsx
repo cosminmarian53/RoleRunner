@@ -30,23 +30,67 @@ export default function CVBuilder() {
   const [score, setScore] = useState(null);
   const [busy, setBusy] = useState(false);
   const [scoreBusy, setScoreBusy] = useState(false);
+  const [fetchBusy, setFetchBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const cleanCompany = (name) =>
+    (name || "")
+      .replace(/\s*(\||-)\s*(Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters).*$/i, "")
+      .replace(/\s*•\s*.*$/, "")
+      .trim();
+
+  const handleFetchUrlDescription = async (targetUrl) => {
+    const u = targetUrl || form.job_url;
+    if (!u || !u.startsWith("http")) return;
+    setFetchBusy(true);
+    setError("");
+
+    try {
+      const res = await api("/jobs/fetch-description", {
+        method: "POST",
+        body: JSON.stringify({ url: u }),
+      });
+      if (res?.description && res.description.length > 50) {
+        setForm((prev) => ({
+          ...prev,
+          job_description: res.description,
+        }));
+      }
+    } catch {
+      // Non-blocking fallback
+    } finally {
+      setFetchBusy(false);
+    }
+  };
 
   // Prepopulate form if passed from JobSearch or Dashboard
   useEffect(() => {
     if (location.state) {
+      const initialComp = cleanCompany(location.state.company);
+      const initialUrl = location.state.job_url || "";
+      const initialDesc = location.state.job_description || "";
+
       setForm((prev) => ({
         ...prev,
         job_title: location.state.job_title || prev.job_title,
-        company: location.state.company || prev.company,
-        job_url: location.state.job_url || prev.job_url,
-        job_description: location.state.job_description || prev.job_description,
+        company: initialComp || prev.company,
+        job_url: initialUrl || prev.job_url,
+        job_description: initialDesc || prev.job_description,
       }));
+
+      // If description is short (e.g. snippet) and URL exists, auto-fetch full posting
+      if (initialUrl && initialDesc.length < 300) {
+        handleFetchUrlDescription(initialUrl);
+      }
     }
   }, [location.state]);
 
-  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const update = (key, value) =>
+    setForm((current) => ({
+      ...current,
+      [key]: key === "company" ? cleanCompany(value) : value,
+    }));
 
   const handleGenerate = async (event) => {
     event.preventDefault();
@@ -148,11 +192,36 @@ export default function CVBuilder() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Job URL (Optional)</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-300">Job URL (Optional)</label>
+              {form.job_url && (
+                <button
+                  type="button"
+                  onClick={() => handleFetchUrlDescription(form.job_url)}
+                  disabled={fetchBusy}
+                  className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 disabled:opacity-50"
+                >
+                  {fetchBusy ? (
+                    <>
+                      <LoaderCircle size={12} className="animate-spin" /> Fetching...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={12} /> Auto-Fetch Full Posting
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
             <input
               type="url"
               value={form.job_url}
               onChange={(e) => update("job_url", e.target.value)}
+              onBlur={() => {
+                if (form.job_url && form.job_description.length < 300) {
+                  handleFetchUrlDescription(form.job_url);
+                }
+              }}
               placeholder="https://..."
               className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
             />
