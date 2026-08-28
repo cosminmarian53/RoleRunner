@@ -304,8 +304,7 @@ class JobScorer:
         missing = sorted(list(job_keywords - cv_keywords))
 
         match_ratio = len(matched) / len(job_keywords)
-        keyword_pct = round(match_ratio * 100, 1)
-
+        keyword_pct = round(match_ratio * 100.0, 1)
         overall = int(round(keyword_pct))
         overall = max(0, min(100, overall))
 

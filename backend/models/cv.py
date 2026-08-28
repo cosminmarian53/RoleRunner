@@ -27,7 +27,7 @@ class CVGenerateRequest(BaseModel):
     company: str = ""
     job_url: str = ""
     export_format: ExportFormat = ExportFormat.PDF
-    use_ai: bool = False
+    use_ai: bool = True
 
     @model_validator(mode="after")
     def _has_job_context(self) -> "CVGenerateRequest":

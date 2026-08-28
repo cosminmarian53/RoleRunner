@@ -23,6 +23,7 @@ export default function CVBuilder() {
     job_url: "",
     job_description: "",
     export_format: "pdf",
+    use_ai: true,
   });
 
   const [generated, setGenerated] = useState(null);
@@ -243,35 +244,72 @@ export default function CVBuilder() {
 
           {/* ATS Score Meter Panel */}
           {generated && (
-            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex flex-col items-center justify-center">
-                  <strong className="text-sm font-extrabold">{score?.overall_score ?? "9.2"}</strong>
-                  <span className="text-[9px] uppercase font-bold text-emerald-500">ATS</span>
+            <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex flex-col items-center justify-center flex-none">
+                    <strong className="text-base font-extrabold">
+                      {score?.overall_score != null ? (score.overall_score / 10).toFixed(1) : "8.5"}
+                    </strong>
+                    <span className="text-[9px] uppercase font-bold text-emerald-500">/ 10 ATS</span>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">
+                      {score?.overall_score != null
+                        ? `${score.overall_score}% Keyword Coverage`
+                        : "Strong Profile Match"}
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      {score?.overall_score != null && score.overall_score >= 70
+                        ? "High keyword alignment with target job requirements"
+                        : "Consider adding the missing target keywords below"}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white">
-                    {score
-                      ? `${
-                          score.keyword_match_pct <= 1.0
-                            ? Math.round((score.keyword_match_pct || 0.92) * 100)
-                            : Math.round(score.keyword_match_pct)
-                        }% Target Match`
-                      : "High Keyword Density"}
-                  </h4>
-                  <p className="text-[11px] text-slate-400">Aligned with job description skills and phrasing</p>
-                </div>
+
+                <button
+                  type="button"
+                  onClick={handleScoreCV}
+                  disabled={scoreBusy}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition flex-none"
+                >
+                  {scoreBusy ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  Re-evaluate Score
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={handleScoreCV}
-                disabled={scoreBusy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition"
-              >
-                {scoreBusy ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                Re-evaluate Score
-              </button>
+              {/* Matched / Missing Keyword Chips */}
+              {(score?.matched_keywords?.length > 0 || score?.missing_keywords?.length > 0) && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                  {score.matched_keywords?.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-semibold text-emerald-400 mr-1">Matched:</span>
+                      {score.matched_keywords.slice(0, 8).map((kw) => (
+                        <span
+                          key={kw}
+                          className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+                        >
+                          ✓ {kw}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {score.missing_keywords?.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-semibold text-amber-400 mr-1">Suggested:</span>
+                      {score.missing_keywords.slice(0, 6).map((kw) => (
+                        <span
+                          key={kw}
+                          className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300"
+                        >
+                          + {kw}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </section>
