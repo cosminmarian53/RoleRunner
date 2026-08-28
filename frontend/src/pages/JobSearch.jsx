@@ -5,7 +5,14 @@ import JobIntelModal from "../components/JobIntelModal";
 import { api } from "../lib/api";
 
 export default function JobSearch() {
-  const [form, setForm] = useState({ query: "", target_companies: "", location_filter: "", remote_only: false, limit: 20 });
+  const [form, setForm] = useState({
+    query: "",
+    target_companies: "",
+    location_filter: "",
+    date_posted_filter: "",
+    remote_only: false,
+    limit: 20,
+  });
   const [results, setResults] = useState(null);
   const [selectedJobIntel, setSelectedJobIntel] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -36,6 +43,14 @@ export default function JobSearch() {
       <form className="panel search-form" onSubmit={search}>
         <label className="grow">Role or keywords<input required value={form.query} onChange={(event) => update("query", event.target.value)} placeholder="Smart contract security engineer" /></label>
         <label>Location<input value={form.location_filter} onChange={(event) => update("location_filter", event.target.value)} placeholder="Europe" /></label>
+        <label>Date posted
+          <select value={form.date_posted_filter} onChange={(event) => update("date_posted_filter", event.target.value)}>
+            <option value="">Anytime</option>
+            <option value="24h">Past 24 hours</option>
+            <option value="7d">Past week</option>
+            <option value="30d">Past month</option>
+          </select>
+        </label>
         <label className="number-field">Limit<input type="number" min="1" max="100" value={form.limit} onChange={(event) => update("limit", Number(event.target.value))} /></label>
         <label className="checkbox"><input type="checkbox" checked={form.remote_only} onChange={(event) => update("remote_only", event.target.checked)} /> Remote only</label>
         <label className="full-field">Target career pages, one URL per line<textarea rows="2" value={form.target_companies} onChange={(event) => update("target_companies", event.target.value)} placeholder="https://boards.greenhouse.io/company" /></label>
