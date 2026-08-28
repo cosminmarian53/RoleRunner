@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
 
     # Server
-    backend_host: str = "0.0.0.0"
+    backend_host: str = "0.0.0.0"  # nosec B104
     backend_port: int = 8000
     frontend_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173"

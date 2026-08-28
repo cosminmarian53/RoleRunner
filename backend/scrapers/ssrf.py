@@ -24,7 +24,7 @@ FORBIDDEN_HOSTS = {
     "localhost",
     "127.0.0.1",
     "::1",
-    "0.0.0.0",
+    "0.0.0.0",  # nosec B104
     "169.254.169.254",  # AWS/GCP/Azure instance metadata
     "metadata.google.internal",
 }

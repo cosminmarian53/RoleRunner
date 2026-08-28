@@ -69,10 +69,7 @@ def extract_text_from_pdf(content: bytes) -> str:
     annotations (/Annots, /URI, mailto:) ensuring contact links are preserved.
     """
     try:
-        try:
-            from pypdf import PdfReader
-        except ImportError:
-            from PyPDF2 import PdfReader  # type: ignore[no-redef,assignment]
+        from pypdf import PdfReader
 
         reader = PdfReader(BytesIO(content))
         pages_text: list[str] = []

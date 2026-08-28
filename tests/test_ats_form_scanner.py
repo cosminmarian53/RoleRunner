@@ -242,3 +242,59 @@ async def test_greenhouse_guidepoint_form_scanning(monkeypatch: pytest.MonkeyPat
     )
     assert "Summer 2026" in ans["When are you available for full-time hire?"]
     assert ans["Are you Hispanic/Latino?"] == "No"
+
+
+@pytest.mark.asyncio
+async def test_fab2_ashby_text_form_parsing() -> None:
+    """Verify smart text parsing and answering for client-rendered Ashby forms."""
+    fab2_pasted_text = """
+    Portfolio - website link
+    Have you included a portfolio with your application?
+    Tell us a bit about yourself and why you'd like to join fab2
+    Ideal start date in office
+    Ideal end date
+    Are you currently authorized to work in the United States?
+    Will you, at any point, require employer sponsorship to work in the United States?
+    How did you hear about us?
+    I am one of the following: (a) a citizen of the United States; (b) a lawful permanent resident of the United States; or (c) a person admitted into the United States as an asylee or refugee:
+    If no, is your home country listed below? Armenia, Azerbaijan, Belarus, Burma, Cambodia, China, Cuba, Georgia, Iran, Iraq, Kazakhstan, North Korea, Kyrgyzstan, Laos, Libya, Macao, Moldova, Mongolia, Nicaragua, Russia, Syria, Tajikistan, Turkmenistan, Uzbekistan, Venezuela, Vietnam, Yemen
+    """
+
+    profile = CandidateProfile(
+        personal_info=PersonalInfo(
+            name="Cosmin-Marian Lavric",
+            location="Brasov, Romania (EET)",
+            portfolio="https://github.com/cosminmarian53/security-audit-portofolio",
+            github="https://github.com/cosminmarian53",
+        ),
+    )
+
+    scanner = ATSFormScanner()
+    pack = await scanner.generate_application_pack(
+        profile=profile,
+        job_title="Rust Software Engineering Intern, Chip Design Tools - Winter",
+        company="fab2",
+        job_description=fab2_pasted_text,
+        job_url="",
+    )
+
+    ans = {q.label: q.suggested_answer for q in pack.custom_questions}
+    assert ans["Portfolio - website link"] == "https://github.com/cosminmarian53/security-audit-portofolio"
+    assert "Included link" in ans["Have you included a portfolio with your application?"]
+    assert "January 2026" in ans["Ideal start date in office"]
+    assert "April 2026" in ans["Ideal end date"]
+    assert ans["Are you currently authorized to work in the United States?"] == "No"
+    assert ans["Will you, at any point, require employer sponsorship to work in the United States?"] == "Yes"
+    assert "LinkedIn" in ans["How did you hear about us?"]
+    assert (
+        ans[
+            "I am one of the following: (a) a citizen of the United States; (b) a lawful permanent resident of the United States; or (c) a person admitted into the United States as an asylee or refugee"
+        ]
+        == "No"
+    )
+    assert (
+        "Romania"
+        in ans[
+            "If no, is your home country listed below? Armenia, Azerbaijan, Belarus, Burma, Cambodia, China, Cuba, Georgia, Iran, Iraq, Kazakhstan, North Korea, Kyrgyzstan, Laos, Libya, Macao, Moldova, Mongolia, Nicaragua, Russia, Syria, Tajikistan, Turkmenistan, Uzbekistan, Venezuela, Vietnam, Yemen"
+        ]
+    )

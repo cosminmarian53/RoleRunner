@@ -42,7 +42,15 @@ format:
 typecheck:
 	uv run mypy backend/ tests/ scripts/
 
-check: lint typecheck test
+security:
+	@echo "Running Bandit SAST code security scan..."
+	uv run bandit -r backend/ -ll -ii
+	@echo "Running pip-audit dependency vulnerability scan..."
+	uv run pip-audit
+	@echo "Running frontend npm security audit..."
+	cd frontend && npm audit --audit-level=high || true
+
+check: lint typecheck security test
 
 # Development servers
 dev:

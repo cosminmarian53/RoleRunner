@@ -1,0 +1,56 @@
+name: Security & Vulnerability Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 4 * * 1' # Weekly automated scan every Monday at 04:00 UTC
+
+jobs:
+  sast-and-secrets:
+    name: Code SAST & Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv & Security Scanners
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Dependencies
+        run: |
+          uv sync --all-extras --dev
+
+      - name: Python SAST (Bandit)
+        run: |
+          uv run bandit -r backend/ -ll -ii
+
+      - name: Python Dependency Audit (pip-audit)
+        run: |
+          uv run pip-audit
+
+  frontend-security:
+    name: Frontend Dependency Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Frontend Dependency Audit (npm audit)
+        run: |
+          cd frontend
+          npm audit --audit-level=high || true

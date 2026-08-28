@@ -270,6 +270,94 @@ class ATSFormScanner:
             ),
         ]
 
+    def parse_text_form(self, text: str) -> list[ApplicationFormField]:
+        """Extract structured questions and options from raw pasted job application text."""
+        if not text:
+            return []
+
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        fields: list[ApplicationFormField] = []
+        seen: set[str] = set()
+
+        noise_text_lines = {
+            "autofill from resume",
+            "upload your resume here to autofill key application fields.",
+            "name",
+            "email",
+            "resume",
+            "first name",
+            "last name",
+            "phone",
+            "apply for this job",
+            "application",
+            "overview",
+            "intern",
+            "or drag and drop here",
+            "attach",
+            "enter manually",
+            "accepted file types: pdf, doc, docx, txt, rtf",
+            "required field",
+            "select...",
+            "select one",
+            "select",
+        }
+
+        for line in lines:
+            lower = line.lower().strip()
+            if lower in noise_text_lines or len(lower) < 3:
+                continue
+
+            # Check if line is a question or prompt
+            is_question = (
+                line.endswith("?")
+                or line.endswith(":")
+                or any(
+                    k in lower
+                    for k in [
+                        "portfolio",
+                        "tell us a bit about yourself",
+                        "why you'd like to join",
+                        "ideal start date",
+                        "ideal end date",
+                        "authorized to work",
+                        "employer sponsorship",
+                        "how did you hear",
+                        "export control",
+                        "citizen of the united states",
+                        "home country listed",
+                        "school",
+                        "degree",
+                        "discipline",
+                        "certifications",
+                        "clearance",
+                        "onboarding",
+                        "available for full-time",
+                    ]
+                )
+            )
+
+            if is_question:
+                clean_q = re.sub(r"[\s\*✱:]+$", "", line).strip()
+                clean_lower = clean_q.lower()
+                if clean_lower not in seen and len(clean_q) > 4:
+                    # Ignore descriptive paragraph sentences
+                    if clean_q.startswith("Required - Please add a website link"):
+                        continue
+                    seen.add(clean_lower)
+                    ftype = (
+                        "textarea" if any(k in clean_lower for k in ["tell us", "why", "describe", "list"]) else "text"
+                    )
+                    fields.append(
+                        ApplicationFormField(
+                            field_id=f"text_field_{len(fields) + 1}",
+                            label=clean_q,
+                            field_type=ftype,
+                            required=True,
+                        )
+                    )
+
+        return fields
+
     async def generate_application_pack(
         self,
         profile: CandidateProfile,
@@ -282,6 +370,13 @@ class ATSFormScanner:
         """Scan apply form and generate tailored answers for every question."""
         html = await self.fetch_form_html(job_url) if job_url else ""
         custom_questions = self.parse_form_fields(html, job_url)
+
+        # Fallback to smart text parser if HTML yielded no custom questions but description has form text
+        if (not custom_questions or custom_questions == self._default_standard_questions()) and job_description:
+            text_questions = self.parse_text_form(job_description)
+            if text_questions:
+                custom_questions = text_questions
+
         facts = extract_profile_facts(profile)
 
         # Standard contact fields prefilled from candidate profile
@@ -314,11 +409,33 @@ class ATSFormScanner:
         for q in custom_questions:
             lbl = q.label.lower().strip()
 
-            # 1. Export Controls / ITAR / 22 C.F.R. § 120.62
-            if bool(re.search(r"\b(export control|u\.?s\.?\s*person|itar|ear|compliance obligation)\b", lbl)):
+            # 1. Export Controls / ITAR / 22 C.F.R. § 120.62 / EAR Restricted Countries
+            if bool(re.search(r"\b(home country listed below|restricted country)\b", lbl)):
+                q.suggested_answer = "No (Home country is Romania, which is not on the restricted list)"
+            elif bool(
+                re.search(r"\b(citizen of the united states|lawful permanent resident|asylee or refugee)\b", lbl)
+            ):
+                q.suggested_answer = "No"
+            elif bool(re.search(r"\b(export control|u\.?s\.?\s*person|itar|ear|compliance obligation)\b", lbl)):
                 q.suggested_answer = "Foreign person. This ITAR/EAR status includes anyone who is not a U.S. person."
 
-            # 2. Previous Internship Experience
+            # 2. Portfolio Links & Inclusion
+            elif bool(re.search(r"\b(portfolio.*(?:link|website|url)|website link.*portfolio)\b", lbl)):
+                q.suggested_answer = (
+                    profile.personal_info.portfolio
+                    or profile.personal_info.github
+                    or "https://github.com/cosminmarian53/security-audit-portofolio"
+                )
+            elif bool(re.search(r"\b(included a portfolio|include a portfolio)\b", lbl)):
+                q.suggested_answer = "Yes (Included link to portfolio and GitHub)"
+
+            # 3. Ideal Start & End Dates
+            elif bool(re.search(r"\b(ideal start date|start date in office)\b", lbl)):
+                q.suggested_answer = "January 2026 / Winter 2026 (or as aligned with the internship cohort)"
+            elif bool(re.search(r"\b(ideal end date|internship end date)\b", lbl)):
+                q.suggested_answer = "April 2026 / Spring 2026"
+
+            # 4. Previous Internship Experience
             elif bool(re.search(r"\b(previous internship|prior internship|completed.*internship)\b", lbl)):
                 q.suggested_answer = (
                     "Yes. I completed a Cybersecurity Analyst Internship at IBM Summer School (July 2025), where I designed "
@@ -326,19 +443,19 @@ class ATSFormScanner:
                     "and conducted automated security and reliability assessments."
                 )
 
-            # 3. Academic Standing & Junior/Senior Year
+            # 5. Academic Standing & Junior/Senior Year
             elif bool(re.search(r"\b(junior year|senior year|graduate student|academic level|year of study)\b", lbl)):
                 q.suggested_answer = (
                     "Yes (Entering senior year at Transilvania University of Brasov, completing degree in 2026)."
                 )
 
-            # 4. Full-time Hire & Graduation Timeline
+            # 6. Full-time Hire & Graduation Timeline
             elif bool(
                 re.search(r"\b(when are you available for full-time|full-time hire|available for full-time)\b", lbl)
             ):
                 q.suggested_answer = "Summer 2026 (Upon graduation in 2026)"
 
-            # 5. Schedule & Weekly Hours Commitments
+            # 7. Schedule & Weekly Hours Commitments
             elif bool(
                 re.search(
                     r"\b(25-29|schedule|self-paced|hours|hrs/wk|eastern|monday|friday|training program)\b",
@@ -350,7 +467,7 @@ class ATSFormScanner:
                     "11am–4pm Eastern Monday through Friday for the full duration of the program."
                 )
 
-            # 6. Semester Availability
+            # 8. Semester Availability
             elif bool(re.search(r"\b(semester|cohort|term)\b", lbl)):
                 # Match semester if listed in options or title
                 if any("fall 2026" in opt.lower() for opt in q.options):
@@ -360,7 +477,7 @@ class ATSFormScanner:
                 else:
                     q.suggested_answer = "Fall 2026"
 
-            # 6. Referral Source & Employee Affiliation
+            # 9. Referral Source & Employee Affiliation
             elif bool(
                 re.search(
                     r"\b(current or former.*employee|employee referral|associated with a customer|vendor partner|connection to them)\b",
@@ -369,9 +486,9 @@ class ATSFormScanner:
             ):
                 q.suggested_answer = "No"
             elif bool(re.search(r"\b(how did you hear|referral|source)\b", lbl)):
-                q.suggested_answer = "LinkedIn / Company Website"
+                q.suggested_answer = "LinkedIn / Sam's Youtube"
 
-            # 7. Industry Certifications & Training
+            # 10. Industry Certifications & Training
             elif "cert" in lbl:
                 if "list" in lbl or q.field_type in ("textarea", "text"):
                     q.suggested_answer = facts["certs_summary"]
@@ -382,7 +499,7 @@ class ATSFormScanner:
             ):
                 q.suggested_answer = "Yes (B.S. in Electrical Engineering & Computer Science, Cybersecurity Analyst Internship at IBM Summer School)"
 
-            # 8. Security Clearance
+            # 11. Security Clearance
             elif bool(re.search(r"\b(security clearance|clearance level|active clearance)\b", lbl)):
                 q.suggested_answer = "None / Not Applicable"
 
