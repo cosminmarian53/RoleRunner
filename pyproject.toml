@@ -1,0 +1,61 @@
+[project]
+name = "job-bot"
+version = "0.1.0"
+description = "AI-powered job scouting, CV generation, and application orchestration agent"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "python-multipart>=0.0.18",
+    # Data validation
+    "pydantic>=2.12.0",
+    "pydantic-settings>=2.8.0",
+    # HTTP client
+    "httpx>=0.28.0",
+    # Web scraping & search
+    "beautifulsoup4>=4.14.0",
+    "requests>=2.32.0",
+    "ddgs>=7.0.0",
+    # Document processing
+    "python-docx>=1.1.0",
+    "markdown2>=2.5.0",
+    "reportlab>=4.4.0",
+    "PyPDF2>=3.0.0",
+    # MCP
+    "mcp>=1.9.0",
+    # CLI & display
+    "rich>=15.0.0",
+    # Config
+    "python-dotenv>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=1.0.0",
+    "black>=25.1.0",
+    "isort>=6.0.0",
+    "flake8>=7.2.0",
+    "mypy>=1.15.0",
+    "pre-commit>=4.2.0",
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py313"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

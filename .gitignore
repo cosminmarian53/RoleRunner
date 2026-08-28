@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Data & credentials (sensitive)
+data/credentials/
+data/profiles/
+data/jobs/
+data/exports/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing & linting
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.pre-commit-cache/
+
+# Logs
+*.log
