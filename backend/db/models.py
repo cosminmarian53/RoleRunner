@@ -210,3 +210,26 @@ class OperationRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Index("ix_operations_user_status", "user_id", "status"),
         Index("ix_operations_user_created", "user_id", "created_at"),
     )
+
+
+class FeedbackRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """User feedback, satisfaction ratings, and bug submissions."""
+
+    __tablename__ = "feedback"
+
+    user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str] = mapped_column(String(50), default="general", nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    page_url: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+
+    __table_args__ = (
+        Index("ix_feedback_category", "category"),
+        Index("ix_feedback_created", "created_at"),
+    )
