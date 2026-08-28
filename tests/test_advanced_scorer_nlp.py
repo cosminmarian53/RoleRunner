@@ -165,7 +165,7 @@ def test_clean_candidate_headline_formatting() -> None:
     from backend.services.cv_generator import clean_candidate_headline
 
     h1 = clean_candidate_headline("Software Engineer (Internship, Summer 2027) - US Government Team")
-    assert h1 == "Software Engineering Intern"
+    assert h1 == "Junior Software Engineer"
 
     h2 = clean_candidate_headline("2026 Early Career Embedded Software Engineer - TP-Link Systems Inc.")
     assert h2 == "Embedded Software Engineer"

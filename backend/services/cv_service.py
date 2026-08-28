@@ -47,8 +47,16 @@ class CVService:
         Generate tailored CV markdown, compute ATS score, render requested document formats,
         store artifacts, and persist record in PostgreSQL.
         """
-        # 1. Load candidate profile
+        # 1. Load candidate profile and ensure GitHub enrichment
         profile = await self.profile_service.get_profile()
+        if profile.personal_info.github and len(profile.projects) < 5:
+            try:
+                from backend.services.profile_enricher import ProfileEnrichmentService
+
+                enricher = ProfileEnrichmentService()
+                profile = await enricher.enrich_profile(profile)
+            except Exception:
+                pass
 
         # Enrich short job description by fetching full live job posting if job_url is provided
         job_desc = request.job_description.strip()

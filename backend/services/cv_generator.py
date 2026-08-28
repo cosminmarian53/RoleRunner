@@ -47,7 +47,9 @@ def clean_company_name(company: str) -> str:
 def clean_candidate_headline(job_title: str, profile_title: str = "") -> str:
     """
     Derive an elegant, professional candidate headline aligned with the target role.
-    Strips raw board suffixes, requisition codes, cohorts, location tags, and seasonal fluff.
+    Always produces a clean industry job title (e.g. 'Junior Rust Software Engineer' or 'Rust Software Engineer'
+    for junior/intern roles, 'Senior Software Engineer' for senior roles).
+    Strips raw board suffixes, bracketed team strings, requisition codes, cohorts, and seasonal fluff.
     """
     if profile_title and len(profile_title.strip()) > 3:
         return profile_title.strip()
@@ -59,50 +61,62 @@ def clean_candidate_headline(job_title: str, profile_title: str = "") -> str:
     t = re.split(r"\s+(?:at\s+[A-Z]|•|\|)\s*", t)[0].strip()
     # Remove board suffixes and company suffixes
     t = re.sub(
-        r"\s*[-–—]\s*(?:Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters|TP-Link|Palantir|Blink22|Canonical|ScriptChain|Euronet|CertiK|Clickhouse).*$",
+        r"\s*[-–—]\s*(?:Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters|TP-Link|Palantir|Blink22|Canonical|ScriptChain|Euronet|CertiK|Clickhouse|Fab2).*$",
         "",
         t,
         flags=re.I,
     ).strip()
     # Remove location suffixes
     t = re.sub(
-        r"\s*[-–—]\s*(?:France|Germany|UK|US|USA|London|Berlin|New York|San Francisco|Canada|Australia|Singapore|EMEA|APAC|US\s*Government.*).*$",
+        r"\s*[-–—]\s*(?:France|Germany|UK|US|USA|London|Berlin|New York|San Francisco|Austin|Canada|Australia|Singapore|EMEA|APAC|US\s*Government.*).*$",
         "",
         t,
         flags=re.I,
     ).strip()
-    # Remove parentheticals
+    # Remove all parentheticals (e.g. (Chip Design Tools), (m/f/d), (US Government Team))
     t = re.sub(
-        r"\s*\((?:m/f/d|m/w/d|d/f/m|f/m/d|remote|hybrid|on-site|full-time|part-time|contract|req\s*\d+|us\s*government.*)\)",
+        r"\s*\([^\)]*\)",
         "",
         t,
         flags=re.I,
     ).strip()
-    # Remove seasonal prefixes
+    # Remove seasonal prefixes and suffixes
     t = re.sub(
         r"^(?:\d{4}|Summer\s*\d{4}|Fall\s*\d{4}|Winter\s*\d{4}|Spring\s*\d{4})\s*(?:Early\s*Career|Internship|Intern)?\s*[-–—:]?\s*",
         "",
         t,
         flags=re.I,
     ).strip()
+    t = re.sub(
+        r"\s*[-–—]\s*(?:Summer|Fall|Winter|Spring)?\s*(?:Internship|Intern|Co-op|202[4-9]).*$",
+        "",
+        t,
+        flags=re.I,
+    ).strip()
 
-    # Check internship
+    # Check seniority and role level
     is_intern = bool(re.search(r"\b(intern|internship|co-op|trainee|student)\b", job_title, re.I))
+    is_senior = bool(re.search(r"\b(senior|sr|lead|staff|principal)\b", job_title, re.I))
 
-    # Clean inner parentheticals like (Internship, Summer 2027)
+    # Base title normalization
     base = re.sub(
-        r"[\(,]?\s*(?:internship|intern|co-op|trainee|student|summer\s*\d{4}|fall\s*\d{4}|winter\s*\d{4}|spring\s*\d{4}|202[4-9])\s*[\)]?",
+        r"[\(,]?\s*(?:internship|intern|co-op|trainee|student|summer|fall|winter|spring|202[4-9])\s*[\)]?",
         "",
         t,
         flags=re.I,
     ).strip(" ,-–—")
-    base = re.sub(r"\s*[-–—]\s*Software\s+Engineering\b", "Software Engineering", base, flags=re.I).strip()
+    base = re.sub(r"Software\s+Engineering\b", "Software Engineer", base, flags=re.I).strip()
 
     if is_intern:
-        if "intern" not in base.lower():
-            if base.lower().endswith("engineer"):
-                base = base[:-8] + "Engineering"
-            return f"{base.strip()} Intern".strip()
+        if not base.lower().startswith(("junior", "intern")):
+            if "rust" in base.lower():
+                return "Junior Rust Software Engineer"
+            if "software engineer" in base.lower():
+                return f"Junior {base}".replace("Junior Junior", "Junior").strip()
+            return f"Junior {base}".strip()
+
+    if is_senior:
+        return base
 
     return base or t
 

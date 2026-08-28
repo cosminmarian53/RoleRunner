@@ -115,7 +115,16 @@ class ProfileService:
         return CandidateProfile()
 
     async def save_profile(self, profile: CandidateProfile) -> CandidateProfile:
-        """Persist candidate profile to the database."""
+        """Persist candidate profile to the database with automatic background GitHub enrichment."""
+        if profile.personal_info.github:
+            try:
+                from backend.services.profile_enricher import ProfileEnrichmentService
+
+                enricher = ProfileEnrichmentService()
+                profile = await enricher.enrich_profile(profile)
+            except Exception as exc:
+                logger.debug("Background profile enrichment notice: %s", exc)
+
         if self.repo is not None:
             await self.repo.upsert_profile(profile.model_dump(mode="json"))
         return profile
