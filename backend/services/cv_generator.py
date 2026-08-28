@@ -124,6 +124,39 @@ def clean_candidate_headline(job_title: str, profile_title: str = "", company: s
     ).strip()
     t = re.sub(r"\b(?:\d{1,2}[-\s]*Months?|12[-–\s]*Month|6[-–\s]*Month|Early\s*Career)\b", "", t, flags=re.I).strip()
 
+    # 7. Strip internal organizational/department/business-unit acronyms (e.g. GPSU, EED, XC-DX, BU-SE, CR/PJ)
+    valid_tech_acronyms: set[str] = {
+        "it",
+        "ai",
+        "ml",
+        "qa",
+        "ui",
+        "ux",
+        "ar",
+        "vr",
+        "os",
+        "soc",
+        "siem",
+        "cad",
+        "eda",
+        "fpga",
+        "api",
+        "iam",
+        "zk",
+        "gpu",
+        "cpu",
+        "iot",
+    }
+    words = t.split()
+    clean_words = []
+    for w in words:
+        clean_w = re.sub(r"[^a-zA-Z0-9/\-]", "", w)
+        is_code = bool(re.match(r"^[A-Z0-9]{2,6}(?:[\-/][A-Z0-9]{1,6})?$", clean_w))
+        if is_code and clean_w.lower() not in valid_tech_acronyms:
+            continue
+        clean_words.append(w)
+    t = " ".join(clean_words).strip(" ,-–—:/")
+
     # Detect level
     is_intern = bool(
         re.search(

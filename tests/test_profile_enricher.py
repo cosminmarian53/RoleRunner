@@ -138,3 +138,10 @@ def test_clean_candidate_headline_fab2_and_senior() -> None:
     # 7. Internship with season and team suffix
     h3 = clean_candidate_headline("Software Engineer (Internship, Summer 2027) - US Government Team")
     assert h3 == "Junior Software Engineer"
+
+    # 8. Internal business-unit / department acronyms (GPSU, XC-DX)
+    h_gpsu = clean_candidate_headline("GPSU Cybersecurity Intern (f/m)")
+    assert h_gpsu == "Junior Cybersecurity Specialist"
+
+    h_xcdx = clean_candidate_headline("XC-DX Embedded Software Engineering Trainee (m/f/d)")
+    assert h_xcdx == "Junior Embedded Software Engineer"
