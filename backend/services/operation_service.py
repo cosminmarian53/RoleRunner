@@ -1,11 +1,14 @@
 """Service for tracking long-running operations and broadcasting SSE updates via Redis."""
 
+from __future__ import annotations
+
 import json
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.db.models import OperationRecord
 from backend.repositories.operation_repo import OperationRepository
 from backend.services.redis_service import get_redis_client
 
@@ -14,9 +17,9 @@ class OperationService:
     """Service to manage operation lifecycle and broadcast real-time updates."""
 
     def __init__(self, session: AsyncSession, user_id: UUID) -> None:
-        self.repo = OperationRepository(session, user_id)
-        self.user_id = user_id
-        self.channel_name = f"user:{self.user_id}:operations"
+        self.repo: OperationRepository = OperationRepository(session, user_id)
+        self.user_id: UUID = user_id
+        self.channel_name: str = f"user:{self.user_id}:operations"
 
     async def _publish(self, event_type: str, data: dict[str, Any]) -> None:
         """Publish an event to the user's Redis PubSub channel."""
@@ -24,7 +27,7 @@ class OperationService:
         payload = json.dumps({"event": event_type, "data": data})
         await client.publish(self.channel_name, payload)
 
-    def _to_dict(self, op: Any) -> dict[str, Any]:
+    def _to_dict(self, op: OperationRecord) -> dict[str, Any]:
         """Convert OperationRecord to a standard dictionary payload."""
         return {
             "id": str(op.id),
@@ -38,10 +41,7 @@ class OperationService:
 
     async def create_operation(self, op_type: str, message: str = "") -> dict[str, Any]:
         """Create a new operation and broadcast its creation."""
-        from backend.db.models import OperationRecord
-
-        op = OperationRecord(type=op_type, message=message, status="queued")
-        op = await self.repo.create(op)
+        op = await self.repo.create_operation(type=op_type, message=message, status="queued")
         op_data = self._to_dict(op)
         await self._publish("operation_created", op_data)
         return op_data

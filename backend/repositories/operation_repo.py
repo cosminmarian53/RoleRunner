@@ -17,6 +17,24 @@ class OperationRepository(BaseTenantRepository[OperationRecord]):
     def __init__(self, session: AsyncSession, user_id: UUID) -> None:
         super().__init__(OperationRecord, session, user_id)
 
+    async def create_operation(
+        self,
+        type: str,
+        message: str = "",
+        status: str = "queued",
+        result_ref: str = "",
+        error: str = "",
+    ) -> OperationRecord:
+        """Create and persist a new operation record for the tenant."""
+        op = OperationRecord(
+            type=type,
+            message=message,
+            status=status,
+            result_ref=result_ref,
+            error=error,
+        )
+        return await self.create(op)
+
     async def update_progress(
         self,
         op_id: UUID,
