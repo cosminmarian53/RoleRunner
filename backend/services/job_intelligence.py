@@ -10,21 +10,22 @@ from uuid import UUID
 from backend.models.job import JobIntelligenceRequest, JobIntelligenceResponse
 from backend.models.profile import CandidateProfile
 from backend.services.ai_client import ask
+from backend.services.job_scorer import extract_keywords_from_text
 
 logger = logging.getLogger(__name__)
 
-INTELLIGENCE_SYSTEM_PROMPT = """You are an elite career strategist, executive recruiter, and tech hiring manager.
+INTELLIGENCE_SYSTEM_PROMPT = """You are an elite career strategist, executive recruiter, and hiring manager.
 Analyze the target job opportunity against the candidate's master profile to generate high-leverage application and interview intelligence.
 
 Output strictly formatted JSON matching this schema:
 {
   "role_summary": "Concise 2-3 sentence overview of what the team actually needs and the core problems to solve.",
   "framing_strategy": "Strategic positioning plan: how the candidate should frame their background, which 2-3 flagship achievements to emphasize, and how to position any career transitions.",
-  "company_insights": "Analysis of the company's business model, engineering culture, likely tech stack priorities, and what they value in high-performing hires.",
+  "company_insights": "Analysis of the company's business model, team culture, priorities, and what they value in high-performing hires.",
   "interview_stages": [
     "1. Recruiter Screen (30m): Alignment on motivations, compensation, and high-level trajectory.",
-    "2. Technical Screening / Live Coding (45-60m): Core domain problem solving & architecture.",
-    "3. Onsite / System Design Deep-Dive (60-90m): Real-world project deep-dive and scalability tradeoffs.",
+    "2. Technical / Domain Screening (45-60m): Core domain problem solving and execution competence.",
+    "3. Onsite / Case Study Deep-Dive (60-90m): Real-world project deep-dive and operational tradeoffs.",
     "4. Behavioral & Culture Fit (45m): Team leadership, conflict resolution, and execution velocity.",
     "5. Final Executive / Offer Sync: Alignment on role scope and team roadmap."
   ],
@@ -34,11 +35,11 @@ Output strictly formatted JSON matching this schema:
     "High-impact talk track 3 demonstrating proactive problem-solving or domain leadership"
   ],
   "questions_to_ask": [
-    "Strategic question 1 showing deep interest in engineering roadmap and architecture challenges",
+    "Strategic question 1 showing deep interest in roadmap and core challenges",
     "Strategic question 2 regarding team velocity, metrics for success in first 90 days",
-    "Strategic question 3 exploring product vision and developer autonomy"
+    "Strategic question 3 exploring team vision and autonomy"
   ],
-  "key_technologies": ["Tech 1", "Tech 2", "Tech 3"],
+  "key_technologies": ["Core Skill 1", "Core Skill 2", "Core Skill 3"],
   "culture_notes": "Key cultural markers to mirror (e.g. ownership, fast iteration, extreme customer focus, rigor)."
 }
 Output ONLY raw valid JSON with no markdown formatting or markdown backticks."""
@@ -56,11 +57,10 @@ class JobIntelligenceService:
         profile: CandidateProfile,
     ) -> JobIntelligenceResponse:
         """Analyze job posting and candidate profile to construct actionable intelligence."""
-        # 1. Try AI extraction
         try:
             return await self._generate_with_ai(request, profile)
         except Exception as exc:
-            logger.info("AI job intelligence fallback to heuristic analysis: %s", exc)
+            logger.info("AI job intelligence fallback to dynamic heuristic analysis: %s", exc)
             return self._generate_heuristic(request, profile)
 
     async def _generate_with_ai(
@@ -120,106 +120,87 @@ Job Description:
         request: JobIntelligenceRequest,
         profile: CandidateProfile,
     ) -> JobIntelligenceResponse:
-        """Deterministic heuristic synthesizer for instant or offline analysis."""
-        title = request.job_title.strip()
+        """Deterministic heuristic synthesizer for instant or offline analysis across all career domains."""
+        title = request.job_title.strip() or "Target Role"
         company = request.company.strip() or "the organization"
-        desc = f"{request.summary} {request.description}".lower()
+        full_text = f"{title} {request.summary} {request.description}".strip()
 
-        # Extract technologies mentioned
-        common_tech = [
-            "Python",
-            "React",
-            "TypeScript",
-            "JavaScript",
-            "FastAPI",
-            "Django",
-            "Node.js",
-            "Next.js",
-            "Docker",
-            "Kubernetes",
-            "AWS",
-            "PostgreSQL",
-            "Solidity",
-            "Rust",
-            "Go",
-            "GraphQL",
-            "Redis",
-            "CI/CD",
-            "TailwindCSS",
-            "Playwright",
-        ]
-        matched_tech = [t for t in common_tech if t.lower() in desc]
-        if not matched_tech:
-            matched_tech = ["Core Software Engineering", "System Architecture", "Modern Web Technologies"]
+        # Extract dynamic keywords from job description
+        job_keywords = extract_keywords_from_text(full_text)
+        top_skills = list(job_keywords)[:8]
+        if not top_skills:
+            top_skills = ["Core Domain Expertise", "Cross-functional Execution", "Strategic Problem Solving"]
 
-        # Infer role level
-        is_intern = "intern" in title.lower() or "internship" in title.lower()
-        is_senior = any(w in title.lower() for w in ["senior", "lead", "staff", "principal", "head"])
+        is_senior = any(
+            w in title.lower() for w in ["senior", "lead", "staff", "principal", "head", "director", "manager"]
+        )
+        is_junior = any(w in title.lower() for w in ["intern", "junior", "associate", "entry", "graduate"])
 
-        if is_intern:
+        skills_str = ", ".join(top_skills[:3])
+
+        if is_junior:
             interview_stages = [
-                "1. Recruiter Screen (30 min): Educational background, graduation timeline, and foundational motivation.",
-                "2. Technical Assessment / Take-home: Data structures, algorithm basics, or small project implementation.",
-                "3. Technical Deep-Dive Interview: Code review of assessment, problem solving, and project walkthrough.",
-                "4. Team & Mentor Match Chat: Collaboration style, curiosity, and learning velocity.",
-                "5. Offer & Program Alignment: Internship dates, mentorship plan, and formal offer.",
+                "1. Recruiter Screen (30 min): Foundational background, motivation, and career trajectory.",
+                "2. Skills & Domain Assessment: Practical domain case study or take-home evaluation.",
+                "3. Team Peer Deep-Dive (45 min): Project walkthrough, collaboration style, and problem solving.",
+                "4. Department & Culture Chat (30 min): Growth mindset, mentorship fit, and communication.",
+                "5. Offer Discussion & Roadmap Sync: Team placement and onboarding expectations.",
             ]
             framing_strategy = (
-                f"Position yourself as a rapid, proactive learner with strong foundations in {', '.join(matched_tech[:3])}. "
-                f"Highlight end-to-end shipped projects from your portfolio to prove you can ramp up quickly and contribute immediately."
+                f"Position yourself as an agile, high-velocity contributor with strong fundamentals in {skills_str}. "
+                f"Highlight end-to-end projects and quantifiable results to prove immediate execution readiness."
             )
-            culture_notes = (
-                "Values high curiosity, eagerness to learn, clean communication, and rapid feedback adoption."
-            )
+            culture_notes = "Values high curiosity, fast feedback integration, reliability, and proactive ownership."
         elif is_senior:
             interview_stages = [
-                "1. Recruiter & Hiring Manager Sync (30-45 min): Leadership scope, architectural impact, and compensation.",
-                "2. System Design & Distributed Architecture (60 min): Real-world scalability, tradeoffs, and failure modes.",
-                "3. Hands-on Technical Deep-Dive (60 min): Live system modeling or code pairing with senior peers.",
-                "4. Cross-Functional Collaboration & Product Fit (45 min): Working with product managers and stakeholders.",
-                "5. Executive Leadership Final (30 min): Strategic direction, engineering values, and offer negotiation.",
+                "1. Recruiter & Hiring Executive Screen (30-45 min): Leadership scope, strategic impact, and compensation.",
+                "2. Architecture / Operational Strategy Deep-Dive (60 min): Scalability, risk tradeoffs, and team execution.",
+                "3. Domain Deep-Dive & Peer Panel (60 min): Real-world case study solving and past flagship outcomes.",
+                "4. Cross-Functional Collaboration & Stakeholder Fit (45 min): Stakeholder management and team enablement.",
+                "5. Executive Leadership Final: Long-term organizational vision, team culture, and offer finalization.",
             ]
             framing_strategy = (
-                f"Frame your background around ownership, architecture tradeoffs, and business outcomes. "
-                f"Anchor discussions on systems you designed with {', '.join(matched_tech[:3])} and how you leveled up team engineering quality."
+                f"Anchor your background around executive ownership, systemic improvements, and business outcomes. "
+                f"Emphasize flagship initiatives delivered with {skills_str} and how you level up overall team standards."
             )
-            culture_notes = "Demands high ownership, technical autonomy, architectural rigor, and velocity."
+            culture_notes = (
+                "Demands high autonomy, strategic vision, operational rigor, and cross-functional leadership."
+            )
         else:
             interview_stages = [
-                "1. Initial Recruiter Call (30 min): Career story, core skill alignment, and mutual fit.",
-                "2. Technical Screen / Coding Session (45-60 min): Practical domain coding and architecture fundamentals.",
-                "3. Project Deep-Dive & Peer Pairing (60 min): Walkthrough of past production work and problem solving.",
-                "4. Engineering Culture & Behavioral Fit (45 min): Teamwork, debugging mindset, and communication.",
+                "1. Initial Recruiter Sync (30 min): Career narrative, core skill alignment, and mutual fit.",
+                "2. Domain / Technical Screen (45-60 min): Hands-on problem solving and domain fundamentals.",
+                "3. Practical Project Deep-Dive (60 min): In-depth review of past production deliverables and methodologies.",
+                "4. Cross-Team Culture & Behavioral Interview (45 min): Teamwork, debugging mindset, and communication.",
                 "5. Offer & Team Welcome: Role expectations and start timeline.",
             ]
             framing_strategy = (
-                f"Highlight direct experience shipping production features with {', '.join(matched_tech[:3])}. "
-                f"Emphasize reliable full-stack execution, clear communication, and test-driven development."
+                f"Highlight direct experience delivering measurable outcomes with {skills_str}. "
+                f"Emphasize reliable execution, cross-functional clarity, and proactive problem solving."
             )
-            culture_notes = "Focuses on delivery velocity, collaborative problem-solving, and clean maintainable code."
+            culture_notes = "Focuses on delivery velocity, collaborative problem-solving, and continuous improvement."
 
         role_summary = (
-            f"As a {title} at {company}, you will collaborate on core product development, "
-            f"leveraging {', '.join(matched_tech[:4])} to design, implement, and maintain reliable software solutions."
+            f"As a {title} at {company}, you will drive key initiatives utilizing {skills_str} "
+            f"to solve operational challenges, execute core deliverables, and achieve team milestones."
         )
 
         company_insights = (
-            f"{company} is actively scaling their engineering capabilities for this role. "
-            f"They seek engineers who combine hands-on technical proficiency in {', '.join(matched_tech[:3])} "
-            f"with strong problem-solving independence and high code quality."
+            f"{company} is looking for a high-performing {title} who can immediately leverage {skills_str} "
+            f"to deliver robust results while maintaining high quality and operational excellence."
         )
 
         talking_points = [
-            f"Proven hands-on experience building and deploying scalable features using {matched_tech[0] if matched_tech else 'modern stacks'}.",
-            "Experience navigating ambiguous requirements and taking features from conception to production.",
-            "Strong track record of automated testing, maintainable design patterns, and cross-functional collaboration.",
+            f"Hands-on expertise solving domain challenges and delivering projects using {top_skills[0] if top_skills else 'core industry tools'}.",
+            "Experience managing ambiguous requirements, prioritizing high-impact work, and delivering on tight schedules.",
+            "Track record of improving workflows, upholding quality standards, and collaborating with cross-functional peers.",
         ]
 
         questions_to_ask = [
             "What does a successful first 90 days look like for this role, and what are the most critical milestones?",
-            "How is the engineering team structured, and what is your deployment velocity and CI/CD workflow?",
-            "What is the biggest technical or architectural challenge the team is currently solving?",
-            "How does the team balance shipping new features with reducing technical debt?",
+            "What is the biggest operational or technical challenge the team is currently working to overcome?",
+            "How does the team prioritize new initiatives against existing maintenance and optimization?",
+            "How is success measured and rewarded within the organization?",
         ]
 
         return JobIntelligenceResponse(
@@ -229,6 +210,6 @@ Job Description:
             interview_stages=interview_stages,
             talking_points=talking_points,
             questions_to_ask=questions_to_ask,
-            key_technologies=matched_tech[:6],
+            key_technologies=top_skills[:6],
             culture_notes=culture_notes,
         )

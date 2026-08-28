@@ -251,7 +251,13 @@ export default function CVBuilder() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-white">
-                    {score ? `${Math.round((score.keyword_match_pct || 0.92) * 100)}% Target Match` : "High Keyword Density"}
+                    {score
+                      ? `${
+                          score.keyword_match_pct <= 1.0
+                            ? Math.round((score.keyword_match_pct || 0.92) * 100)
+                            : Math.round(score.keyword_match_pct)
+                        }% Target Match`
+                      : "High Keyword Density"}
                   </h4>
                   <p className="text-[11px] text-slate-400">Aligned with job description skills and phrasing</p>
                 </div>
