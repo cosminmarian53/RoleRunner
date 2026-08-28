@@ -44,12 +44,18 @@ def clean_company_name(company: str) -> str:
     return c
 
 
-def clean_candidate_headline(job_title: str, profile_title: str = "") -> str:
+def clean_candidate_headline(job_title: str, profile_title: str = "", company: str = "") -> str:
     """
     Derive an elegant, professional candidate headline aligned with the target role.
-    Always produces a clean industry job title (e.g. 'Junior Rust Software Engineer' or 'Rust Software Engineer'
-    for junior/intern roles, 'Senior Software Engineer' for senior roles).
-    Strips raw board suffixes, bracketed team strings, requisition codes, cohorts, and seasonal fluff.
+    Handles all general real-world job posting patterns across global job boards:
+    - Strips European diversity/gender tags e.g. (f/m), (m/w/d), (w/m/d), (f/m/d), (m/f/x), (all genders)
+    - Strips dynamic company names and corporate suffixes (Group, Technologies, Solutions, GmbH, Inc, etc.)
+    - Strips bracketed team strings and requisition IDs e.g. [US Government Team], (Chip Design Tools), REQ-1042
+    - Strips seasonal and temporal prefixes/suffixes e.g. Fall 2026, Summer 2025, 12-Month, 6 Months, Early Career
+    - Strips location suffixes e.g. - London, UK / - Munich / - San Francisco / - Dublin / - Remote
+    - Normalizes verbal/departmental nouns into standard professional titles e.g. Development -> Developer, Engineering -> Engineer
+    - Completes dangling domain nouns e.g. IT Application Support -> IT Application Support Specialist, Cloud Infrastructure -> Cloud Infrastructure Engineer
+    - Applies standard seniority/junior prefixing for early career and internship roles.
     """
     if profile_title and len(profile_title.strip()) > 3:
         return profile_title.strip()
@@ -57,30 +63,53 @@ def clean_candidate_headline(job_title: str, profile_title: str = "") -> str:
         return "Software Engineer"
 
     t = job_title.strip()
-    # Remove 'at Company • Location' and everything after 'at ' or '•'
-    t = re.split(r"\s+(?:at\s+[A-Z]|•|\|)\s*", t)[0].strip()
-    # Remove board suffixes and company suffixes
+
+    # 1. Strip parentheticals and brackets e.g. (f/m), (m/w/d), [Remote], (Chip Design Tools), (Req 1234)
+    t = re.sub(r"\[[^\]]*\]", "", t)
+    t = re.sub(r"\([^\)]*\)", "", t)
+
+    # 2. Strip standard ATS delimiters and split on 'at Company', '•', '|', '//'
+    t = re.split(r"\s+(?:at\s+[A-Z]|•|\||//)\s*", t)[0].strip()
+
+    # 3. Strip company names dynamically
+    comp_tokens = []
+    if company:
+        comp_tokens.append(company.strip())
+        clean_c = re.sub(
+            r"\b(group|technologies|solutions|inc|llc|gmbh|corporation|corp|labs?|systems?|automotive|services)\b",
+            "",
+            company,
+            flags=re.I,
+        ).strip()
+        if clean_c and len(clean_c) > 2:
+            comp_tokens.append(clean_c)
+
+    for c in sorted(comp_tokens, key=len, reverse=True):
+        t = re.sub(rf"^\s*{re.escape(c)}\s*[-–—:/]?\s*", "", t, flags=re.I).strip()
+        t = re.sub(rf"\s*[-–—:/]?\s*{re.escape(c)}\s*$", "", t, flags=re.I).strip()
+        t = re.sub(rf"\b{re.escape(c)}\b", "", t, flags=re.I).strip()
+
+    # Strip leftover trailing corporate tokens if at the beginning of the title (e.g. 'Technologies Forward...')
+    t = re.sub(r"^\s*(?:technologies|solutions|group|labs?|systems?)\s*[-–—:/]?\s*", "", t, flags=re.I).strip()
+
+    # 4. Strip job board & requisition artifacts & trailing company names after -
     t = re.sub(
-        r"\s*[-–—]\s*(?:Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters|TP-Link|Palantir|Blink22|Canonical|ScriptChain|Euronet|CertiK|Clickhouse|Fab2).*$",
+        r"\s*[-–—]\s*(?:Jobs?|Careers?|Wellfound|Lever|Ashby|Greenhouse|Workable|Indeed|SmartRecruiters|TP-Link.*|.*(?:Systems|Technologies|Solutions|Inc|LLC|GmbH|Corporation|Corp)).*$",
         "",
         t,
         flags=re.I,
     ).strip()
-    # Remove location suffixes
+    t = re.sub(r"\b(?:REQ-?\d+|ID:?\s*\d+|Job\s*ID:?\s*\d+)\b", "", t, flags=re.I).strip()
+
+    # 5. Strip location suffixes e.g. - London, UK / - Remote / - San Francisco / - Dublin / - Munich
     t = re.sub(
-        r"\s*[-–—]\s*(?:France|Germany|UK|US|USA|London|Berlin|New York|San Francisco|Austin|Canada|Australia|Singapore|EMEA|APAC|US\s*Government.*).*$",
+        r"\s*[-–—]\s*(?:Remote|Hybrid|Onsite|On-site|France|Germany|UK|US|USA|London|Berlin|Munich|Frankfurt|Dublin|Amsterdam|Paris|New York|San Francisco|Austin|Seattle|Atlanta|Romania|Brasov|Bucharest|Cluj|Timisoara|Iasi|Canada|Australia|Singapore|EMEA|APAC).*$",
         "",
         t,
         flags=re.I,
     ).strip()
-    # Remove all parentheticals (e.g. (Chip Design Tools), (m/f/d), (US Government Team))
-    t = re.sub(
-        r"\s*\([^\)]*\)",
-        "",
-        t,
-        flags=re.I,
-    ).strip()
-    # Remove seasonal prefixes and suffixes
+
+    # 6. Strip seasonal/temporal terms e.g. Fall 2026, Summer 2025, 12-Month, 6 Months, Early Career
     t = re.sub(
         r"^(?:\d{4}|Summer\s*\d{4}|Fall\s*\d{4}|Winter\s*\d{4}|Spring\s*\d{4})\s*(?:Early\s*Career|Internship|Intern)?\s*[-–—:]?\s*",
         "",
@@ -88,37 +117,81 @@ def clean_candidate_headline(job_title: str, profile_title: str = "") -> str:
         flags=re.I,
     ).strip()
     t = re.sub(
-        r"\s*[-–—]\s*(?:Summer|Fall|Winter|Spring)?\s*(?:Internship|Intern|Co-op|202[4-9]).*$",
+        r"\s*[-–—]\s*(?:Summer|Fall|Winter|Spring)?\s*(?:Internship|Intern|Co-op|Early\s*Career|Graduate|202[4-9]).*$",
         "",
         t,
         flags=re.I,
     ).strip()
+    t = re.sub(r"\b(?:\d{1,2}[-\s]*Months?|12[-–\s]*Month|6[-–\s]*Month|Early\s*Career)\b", "", t, flags=re.I).strip()
 
-    # Check seniority and role level
-    is_intern = bool(re.search(r"\b(intern|internship|co-op|trainee|student)\b", job_title, re.I))
-    is_senior = bool(re.search(r"\b(senior|sr|lead|staff|principal)\b", job_title, re.I))
+    # Detect level
+    is_intern = bool(
+        re.search(
+            r"\b(intern|internship|co-op|working student|werkstudent|trainee|student|apprentice)\b",
+            job_title,
+            re.I,
+        )
+    )
+    is_senior = bool(re.search(r"\b(senior|sr|lead|staff|principal|head|director)\b", job_title, re.I))
 
-    # Base title normalization
+    # Strip intern/trainee words from the role core
     base = re.sub(
-        r"[\(,]?\s*(?:internship|intern|co-op|trainee|student|summer|fall|winter|spring|202[4-9])\s*[\)]?",
+        r"\b(internship|intern|co-op|trainee|working student|werkstudent|stage|student|summer|fall|winter|spring|202[4-9]|early\s*career)\b",
         "",
         t,
         flags=re.I,
-    ).strip(" ,-–—")
-    base = re.sub(r"Software\s+Engineering\b", "Software Engineer", base, flags=re.I).strip()
+    )
+    base = re.sub(r"\s+", " ", base).strip(" ,-–—:/")
 
+    # 7. Normalize grammatical verbal nouns into professional role nouns
+    base = re.sub(r"\bSoftware\s+Engineering\b", "Software Engineer", base, flags=re.I)
+    base = re.sub(r"\bSystems?\s+Engineering\b", "Systems Engineer", base, flags=re.I)
+    base = re.sub(r"\bData\s+Engineering\b", "Data Engineer", base, flags=re.I)
+    base = re.sub(r"\bCloud\s+(?:Infrastructure\s+)?Engineering\b", "Cloud Infrastructure Engineer", base, flags=re.I)
+    base = re.sub(r"\bSecurity\s+Engineering\b", "Security Engineer", base, flags=re.I)
+    base = re.sub(r"\bInfrastructure\s+Engineering\b", "Infrastructure Engineer", base, flags=re.I)
+    base = re.sub(r"\bFrontend\s+Development\b", "Frontend Developer", base, flags=re.I)
+    base = re.sub(r"\bBackend\s+Development\b", "Backend Developer", base, flags=re.I)
+    base = re.sub(r"\bFull\s*stack\s+Development\b", "Full-Stack Developer", base, flags=re.I)
+
+    # 8. Complete dangling domain nouns
+    lower_base = base.lower()
+    if lower_base.endswith(
+        (
+            "application support",
+            "app support",
+            "it support",
+            "technical support",
+            "tech support",
+            "helpdesk support",
+            "desktop support",
+        )
+    ):
+        base = f"{base} Specialist"
+    elif lower_base.endswith("support"):
+        base = f"{base} Specialist"
+    elif lower_base.endswith(
+        ("devops", "sre", "site reliability", "cloud infrastructure", "infrastructure", "platform")
+    ):
+        base = f"{base} Engineer"
+    elif lower_base.endswith(("quality assurance", "qa")):
+        base = f"{base} Engineer"
+    elif lower_base.endswith(("data analytics", "analytics", "business intelligence")):
+        base = f"{base} Analyst"
+    elif lower_base.endswith(("cybersecurity", "information security", "infosec")):
+        base = f"{base} Specialist"
+
+    # 9. Format prefix
     if is_intern:
-        if not base.lower().startswith(("junior", "intern")):
-            if "rust" in base.lower():
-                return "Junior Rust Software Engineer"
-            if "software engineer" in base.lower():
-                return f"Junior {base}".replace("Junior Junior", "Junior").strip()
-            return f"Junior {base}".strip()
+        if not base.lower().startswith(("junior", "associate", "entry", "graduate", "intern")):
+            if "rust" in base.lower() and "software engineer" not in base.lower():
+                base = "Junior Rust Software Engineer"
+            else:
+                base = f"Junior {base}".replace("Junior Junior", "Junior").strip()
+    elif is_senior:
+        pass
 
-    if is_senior:
-        return base
-
-    return base or t
+    return base or "Software Engineer"
 
 
 def _format_category_name(raw_category: str) -> str:
@@ -193,7 +266,7 @@ def generate_deterministic_cv_markdown(
     """Deterministic template generator that transforms CandidateProfile into structured ATS Markdown."""
     lines: list[str] = []
     clean_comp = clean_company_name(company)
-    target_role = clean_candidate_headline(job_title, getattr(profile.personal_info, "title", ""))
+    target_role = clean_candidate_headline(job_title, getattr(profile.personal_info, "title", ""), company=clean_comp)
 
     # 1. Header & Title
     name = profile.personal_info.name or "Candidate"
@@ -293,16 +366,24 @@ def generate_deterministic_cv_markdown(
             )
             lines.append("")
 
-    # 3. Core Skills & Competencies (Domain-Pruned)
+    # 3. Core Skills & Competencies (Domain-Pruned & Merged)
     raw_skills = profile.skills or getattr(profile, "technical_skills", {})
     skills_map = prune_and_rank_skills_for_role(raw_skills, job_title, job_description, company=clean_comp)
 
     if skills_map:
         lines.append("## Core Skills & Competencies")
+        merged_skills: dict[str, list[str]] = {}
         for cat, items in skills_map.items():
             if items:
                 formatted_cat = _format_category_name(cat)
-                lines.append(f"- **{formatted_cat}:** {', '.join(items)}")
+                if formatted_cat not in merged_skills:
+                    merged_skills[formatted_cat] = []
+                for itm in items:
+                    if itm not in merged_skills[formatted_cat]:
+                        merged_skills[formatted_cat].append(itm)
+        for f_cat, items in merged_skills.items():
+            if items:
+                lines.append(f"- **{f_cat}:** {', '.join(items)}")
         lines.append("")
 
     # 4. Professional Experience
@@ -332,10 +413,22 @@ def generate_deterministic_cv_markdown(
                         lines.append(f"- {clean_b}")
             lines.append("")
 
-    # 5. Projects
+    # 5. Projects (Curated Top Initiatives)
     if profile.projects:
         lines.append("## Projects & Key Initiatives")
+        curated_projs = []
         for proj in profile.projects:
+            desc = proj.description.strip().lstrip("-•*▪ ") if proj.description else ""
+            bullets = getattr(proj, "bullet_points", [])
+            # Filter out raw one-liner stub scrapings
+            if desc.lower() in ("my security audit portofolio", "portfolio", "test") or (
+                len(desc) < 15 and not bullets
+            ):
+                continue
+            curated_projs.append(proj)
+
+        # Show top 3 most comprehensive projects
+        for proj in curated_projs[:3]:
             tech = proj.tech or ", ".join(getattr(proj, "technologies", []))
             header = f"### {proj.name}" + (f" ({tech})" if tech else "")
             lines.append(header)

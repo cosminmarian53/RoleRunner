@@ -105,12 +105,36 @@ async def test_profile_enrichment_service_merges_data(monkeypatch: pytest.Monkey
 
 
 def test_clean_candidate_headline_fab2_and_senior() -> None:
-    """Verify headline normalizer produces clean industry titles for intern and senior roles."""
+    """Verify headline normalizer produces clean industry titles across general market cases."""
+    # 1. Company and diversity tags
+    h_bosch = clean_candidate_headline("Bosch Group IT Application Support Intern (f/m)", company="Bosch Group")
+    assert h_bosch == "Junior IT Application Support Specialist"
+
+    # 2. German/EU tags with location suffix
+    h_siemens = clean_candidate_headline(
+        "Siemens - Cloud Infrastructure Engineering Trainee (m/w/d) - Munich", company="Siemens"
+    )
+    assert h_siemens == "Junior Cloud Infrastructure Engineer"
+
+    # 3. Verbal noun development + location
+    h_stripe = clean_candidate_headline("Stripe Backend Development Internship - Dublin", company="Stripe")
+    assert h_stripe == "Junior Backend Developer"
+
+    # 4. Bracketed team tags + corporate prefix
+    h_palantir = clean_candidate_headline(
+        "Palantir Technologies [US Government Team] Forward Deployed Software Engineering (Summer 2026)",
+        company="Palantir",
+    )
+    assert h_palantir == "Forward Deployed Software Engineer"
+
+    # 5. Intern with bracketed tools and seasonal suffix
     h1 = clean_candidate_headline("Rust Software Engineering(Chip Design Tools) - Winter Intern")
     assert h1 == "Junior Rust Software Engineer"
 
+    # 6. Senior role with bracketed sub-specialty
     h2 = clean_candidate_headline("Senior Developer (Cloud Platforms) - Winter 2026")
     assert h2 == "Senior Developer"
 
+    # 7. Internship with season and team suffix
     h3 = clean_candidate_headline("Software Engineer (Internship, Summer 2027) - US Government Team")
     assert h3 == "Junior Software Engineer"
