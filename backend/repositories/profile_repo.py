@@ -26,6 +26,7 @@ class ProfileRepository(BaseTenantRepository[ProfileRecord]):
 
     async def upsert_profile(self, data: dict[str, Any]) -> ProfileRecord:
         """Create or update the master profile for the current user."""
+        await self.ensure_user_exists()
         profile = await self.get_profile()
         if profile is None:
             profile = ProfileRecord(user_id=self.user_id, data=data)

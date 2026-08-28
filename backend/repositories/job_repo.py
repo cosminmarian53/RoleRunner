@@ -39,6 +39,7 @@ class JobRepository(BaseTenantRepository[JobRecord]):
 
     async def bulk_create(self, jobs: list[JobRecord]) -> list[JobRecord]:
         """Persist multiple job records attached to the current user."""
+        await self.ensure_user_exists()
         for job in jobs:
             job.user_id = self.user_id
             self.session.add(job)

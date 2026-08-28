@@ -101,10 +101,29 @@ def async_session_factory(engine: AsyncEngine | None = None) -> async_sessionmak
 
 
 async def init_db(engine: AsyncEngine | None = None) -> None:
-    """Initialize database tables defined on Base metadata."""
+    """Initialize database tables defined on Base metadata and seed dev tenant."""
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from backend.db.models import UserRecord
+
     active_engine = engine or get_engine()
     async with active_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # In development, ensure default dev user exists
+    if settings.app_env == "development":
+        factory = async_session_factory(active_engine)
+        async with factory() as session:
+            dev_uid = UUID("00000000-0000-0000-0000-000000000001")
+            stmt = select(UserRecord).where(UserRecord.id == dev_uid)
+            result = await session.execute(stmt)
+            if result.scalar_one_or_none() is None:
+                dev_user = UserRecord(id=dev_uid, email="dev-user@example.com", settings_data={})
+                session.add(dev_user)
+                await session.commit()
+
     logger.info("Database tables verified/initialized successfully.")
 
 

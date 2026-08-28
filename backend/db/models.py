@@ -14,9 +14,9 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -32,7 +32,7 @@ class UserRecord(Base, TimestampMixin):
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         primary_key=True,
         default=uuid4,
     )
@@ -74,7 +74,7 @@ class ProfileRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "profiles"
 
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         unique=True,
         index=True,
@@ -91,7 +91,7 @@ class JobRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "jobs"
 
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
@@ -122,13 +122,13 @@ class GeneratedCVRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "generated_cvs"
 
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
     job_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("jobs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -149,19 +149,19 @@ class ApplicationRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "applications"
 
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
     job_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("jobs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     cv_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("generated_cvs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -192,7 +192,7 @@ class OperationRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "operations"
 
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
         nullable=False,

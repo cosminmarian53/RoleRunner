@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Job-Bot"
+    app_name: str = "RoleRunner"
     app_env: str = "development"
 
     # Server
@@ -32,12 +32,12 @@ class Settings(BaseSettings):
 
     # Hosted deployment / Supabase. Local development can run without these.
     public_base_url: str = "http://localhost:8000"
-    database_url: str = "sqlite+aiosqlite:///./data/jobbot.db"
+    database_url: str = "sqlite+aiosqlite:///./data/rolerunner.db"
     redis_url: str = "redis://localhost:6379/0"
     supabase_url: AnyHttpUrl | None = None
     supabase_anon_key: str = ""
     supabase_jwt_secret: str = ""
-    supabase_storage_bucket: str = "job-bot"
+    supabase_storage_bucket: str = "rolerunner"
 
     # Codex harness
     codex_home: str = os.path.expanduser("~/.codex")

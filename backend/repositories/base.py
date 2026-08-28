@@ -47,8 +47,21 @@ class BaseTenantRepository(Generic[ModelT]):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def ensure_user_exists(self, email: str | None = None) -> None:
+        """Ensure user row exists in the users table to satisfy foreign key constraints."""
+        from backend.db.models import UserRecord
+
+        stmt = select(UserRecord).where(UserRecord.id == self.user_id)
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            user_email = email or f"user-{str(self.user_id)[:8]}@example.com"
+            user = UserRecord(id=self.user_id, email=user_email, settings_data={})
+            self.session.add(user)
+            await self.session.flush()
+
     async def create(self, entity: ModelT) -> ModelT:
         """Persist a new entity attached to the current user."""
+        await self.ensure_user_exists()
         entity.user_id = self.user_id  # type: ignore[attr-defined]
         self.session.add(entity)
         await self.session.flush()

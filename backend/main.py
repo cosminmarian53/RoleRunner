@@ -42,9 +42,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     """FastAPI application factory."""
     app = FastAPI(
-        title="Job Bot API",
+        title="RoleRunner API",
         version="1.0.0",
-        description="Multi-tenant ATS application packager, job discovery, and resume tailoring agent.",
+        description="Autonomous AI job scouting, ATS optimization, and application orchestration platform.",
         lifespan=lifespan,
     )
 
