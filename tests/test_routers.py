@@ -265,6 +265,21 @@ async def test_application_crud_endpoints(test_app_and_session):
     err_json = check_resp.json()
     assert err_json["code"] == "NOT_FOUND"
     assert "request_id" in err_json
+    # 7. Test POST /api/applications/scan-form
+    scan_resp = await client.post(
+        "/api/applications/scan-form",
+        json={
+            "job_url": "https://example.com/jobs/apply",
+            "job_title": "Software Engineer Intern",
+            "company": "Vital Lyfe",
+            "notes": "Python, TypeScript, React, internal tools",
+        },
+    )
+    assert scan_resp.status_code == 200
+    pack_data = scan_resp.json()
+    assert pack_data["company"] == "Vital Lyfe"
+    assert "Full Name" in pack_data["standard_fields"]
+    assert len(pack_data["custom_questions"]) >= 1
 
 
 @pytest.mark.asyncio

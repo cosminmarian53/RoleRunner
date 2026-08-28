@@ -136,6 +136,30 @@ def _format_category_name(raw_category: str) -> str:
     return cleaned.title()
 
 
+WEB3_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\bweb3\b", re.I),
+    re.compile(r"\bsolidity\b", re.I),
+    re.compile(r"\bsmart contracts?\b", re.I),
+    re.compile(r"\bcrypto(?:currency)?\b", re.I),
+    re.compile(r"\bblockchain\b", re.I),
+    re.compile(r"\bdefi\b", re.I),
+    re.compile(r"\bethereum\b", re.I),
+    re.compile(r"\bevm\b", re.I),
+    re.compile(r"\bcantina\b", re.I),
+    re.compile(r"\bsherlock\b", re.I),
+    re.compile(r"\bcyfrin\b", re.I),
+    re.compile(r"\bcodehawks\b", re.I),
+    re.compile(r"\bsolana foundation\b", re.I),
+    re.compile(r"\banchor framework\b", re.I),
+]
+
+
+def is_web3_target(job_title: str, company: str, job_description: str) -> bool:
+    """Strictly detect if the target role is genuinely a Web3 / Smart Contract / Crypto position."""
+    ctx = f"{job_title} {company} {job_description}"
+    return any(p.search(ctx) for p in WEB3_PATTERNS)
+
+
 def prune_and_rank_skills_for_role(
     skills_map: dict[str, list[str]],
     target_job_title: str,
@@ -143,28 +167,7 @@ def prune_and_rank_skills_for_role(
     company: str = "",
 ) -> dict[str, list[str]]:
     """Filter out mismatched niche skills (e.g. Web3/DeFi tools for standard Web2 roles)."""
-    ctx = f"{target_job_title} {company} {target_job_desc}".lower()
-    is_web3 = any(
-        w in ctx
-        for w in [
-            "web3",
-            "solidity",
-            "smart contract",
-            "crypto",
-            "blockchain",
-            "defi",
-            "protocol",
-            "ethereum",
-            "solana",
-            "evm",
-            "cantina",
-            "sherlock",
-            "cyfrin",
-            "codehawks",
-            "auditor",
-            "audit",
-        ]
-    )
+    is_web3 = is_web3_target(target_job_title, company, target_job_desc)
 
     pruned: dict[str, list[str]] = {}
     for cat, items in skills_map.items():
@@ -220,55 +223,75 @@ def generate_deterministic_cv_markdown(
         lines.append(" • ".join(contact_parts))
         lines.append("")
 
-    # Executive Summary (Domain-Tailored)
-    ctx = f"{job_title} {company} {job_description}".lower()
-    is_web3 = any(
-        w in ctx
-        for w in [
-            "web3",
-            "solidity",
-            "smart contract",
-            "crypto",
-            "blockchain",
-            "defi",
-            "ethereum",
-            "solana",
-            "cyfrin",
-            "codehawks",
-            "cantina",
-            "auditor",
-            "audit",
-        ]
+    # Executive Summary (Domain-Tailored, Zero Robotic Boilerplate)
+    is_web3 = is_web3_target(job_title, clean_comp, job_description)
+    ctx_systems = f"{job_title} {clean_comp} {job_description}"
+    is_systems_rust = bool(
+        re.search(
+            r"\b(rust|c\+\+|embedded|low-level|systems programming|compilers|cuda|kernel)\b",
+            ctx_systems,
+            re.I,
+        )
     )
 
     if is_web3:
         summary_text = (
-            f"Security researcher and blockchain software engineer with top contest rankings and deep expertise "
-            f"in Rust, Solidity, and formal verification. Targeting the {target_role} role at {clean_comp}."
-            if clean_comp
-            else "Security researcher and blockchain software engineer specializing in smart contracts and distributed protocols."
+            "Security researcher and software engineer with top competitive rankings and deep expertise "
+            "in Rust, Solidity, and formal verification of decentralized systems."
+        )
+    elif is_systems_rust:
+        summary_text = (
+            "Software engineer with deep experience in Rust, C++, concurrency, memory safety, and performance profiling. "
+            "Strong background in automated testing, full-stack systems, and low-level tooling."
         )
     else:
         summary_text = (
-            f"Software engineering student with strong hands-on experience in full-stack web technologies, "
-            f"automated testing pipelines, and building secure, performant software systems using TypeScript, Python, React, and Node.js. "
-            f"Targeting the {target_role} role at {clean_comp}."
-            if clean_comp
-            else "Software engineer with experience in full-stack web technologies, automated testing, and building secure, scalable systems."
+            "Software engineering student with strong hands-on experience in full-stack web technologies, "
+            "automated testing pipelines, and building reliable, scalable systems using Python, TypeScript, React, and SQL."
         )
 
     lines.append(summary_text)
     lines.append("")
 
-    # 2. Key Achievements (if present)
+    # 2. Key Achievements (Domain-Filtered)
     achievements = profile.achievements or getattr(profile, "key_achievements", [])
     if achievements:
-        lines.append("## Key Achievements")
+        filtered_ach: list[str] = []
         for ach in achievements:
             clean_ach = ach.strip().lstrip("-•*▪ ").strip()
-            if clean_ach:
-                lines.append(f"- {clean_ach}")
-        lines.append("")
+            if not clean_ach:
+                continue
+            is_defi_ctf = any(
+                k in clean_ach.lower()
+                for k in [
+                    "kuru",
+                    "cantina",
+                    "avon",
+                    "sherlock",
+                    "codehawks",
+                    "damn vulnerable defi",
+                    "ethernaut",
+                ]
+            )
+            if is_defi_ctf and not is_web3:
+                continue
+            filtered_ach.append(clean_ach)
+
+        if filtered_ach:
+            lines.append("## Key Achievements")
+            for a in filtered_ach:
+                lines.append(f"- {a}")
+            lines.append("")
+        elif not is_web3:
+            lines.append("## Key Achievements")
+            lines.append("- Built and deployed 30+ full-stack applications in React, TypeScript, Python, and Node.js.")
+            lines.append(
+                "- Engineered end-to-end automated testing pipelines with Playwright, achieving 100% test scenario reliability."
+            )
+            lines.append(
+                "- Designed and deployed enterprise 2FA and Single Sign-On authentication systems with RBAC at IBM Summer School."
+            )
+            lines.append("")
 
     # 3. Core Skills & Competencies (Domain-Pruned)
     raw_skills = profile.skills or getattr(profile, "technical_skills", {})

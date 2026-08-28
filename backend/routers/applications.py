@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.session import get_db
@@ -14,8 +15,18 @@ from backend.models.application import (
 from backend.security.auth import get_current_user
 from backend.security.jwt import CurrentUser
 from backend.services.application_service import ApplicationService
+from backend.services.ats_form_scanner import ApplicationPackResponse, ATSFormScanner
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
+
+
+class ScanFormRequest(BaseModel):
+    """Payload to scan an employer form and draft reviewable answers."""
+
+    job_url: str = ""
+    job_title: str = ""
+    company: str = ""
+    notes: str = ""
 
 
 @router.get("", response_model=list[ApplicationRecord])
@@ -94,3 +105,25 @@ async def delete_application(
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found.")
     return {"success": True}
+
+
+@router.post("/scan-form", response_model=ApplicationPackResponse)
+async def scan_application_form(
+    request: ScanFormRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> ApplicationPackResponse:
+    """Scan apply page, extract employer questions, and draft tailored answers."""
+    from backend.services.profile_service import ProfileService
+
+    profile_svc = ProfileService(session=session, user_id=current_user.id)
+    profile = await profile_svc.get_profile()
+
+    scanner = ATSFormScanner(user_id=current_user.id)
+    return await scanner.generate_application_pack(
+        profile=profile,
+        job_title=request.job_title,
+        company=request.company,
+        job_description=request.notes or "",
+        job_url=request.job_url,
+    )
