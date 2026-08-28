@@ -76,7 +76,7 @@ export default function CVBuilder() {
       const res = await api("/cv/score", {
         method: "POST",
         body: JSON.stringify({
-          markdown: generated.markdown_content,
+          markdown_content: generated.markdown_content,
           job_description: form.job_description,
         }),
       });

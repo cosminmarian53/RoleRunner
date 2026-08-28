@@ -24,6 +24,8 @@ STOP_WORDS: set[str] = {
     "for",
     "from",
     "has",
+    "have",
+    "had",
     "he",
     "in",
     "is",
@@ -58,6 +60,7 @@ STOP_WORDS: set[str] = {
     "where",
     "which",
     "who",
+    "whom",
     "how",
     "what",
     "why",
@@ -74,28 +77,59 @@ STOP_WORDS: set[str] = {
     "too",
     "very",
     "can",
+    "could",
+    "would",
     "just",
     "should",
     "now",
+    "across",
+    "after",
+    "before",
+    "during",
+    "while",
+    "since",
+    "until",
+    "upon",
+    "within",
+    "without",
+    "through",
+    "throughout",
+    "above",
+    "below",
+    "between",
+    "under",
+    "over",
+    "around",
+    "near",
+    "against",
+    "along",
+    "ability",
+    "able",
     "looking",
     "years",
     "experience",
+    "experienced",
     "opportunity",
     "team",
+    "teams",
     "role",
+    "roles",
     "position",
+    "positions",
     "join",
+    "joining",
     "help",
+    "helping",
     "work",
     "working",
-    "able",
+    "worked",
     "must",
     "plus",
     "required",
+    "requirements",
     "responsible",
     "responsibilities",
     "qualifications",
-    "requirements",
     "benefits",
     "location",
     "remote",
@@ -117,14 +151,82 @@ STOP_WORDS: set[str] = {
     "skills",
     "skill",
     "skilled",
+    "strong",
+    "good",
+    "great",
+    "excellent",
+    "proven",
+    "understanding",
+    "knowledge",
+    "familiarity",
+    "background",
+    "passionate",
+    "motivated",
+    "detail-oriented",
+    "self-starter",
+    "fast-paced",
+    "environment",
+    "solutions",
+    "collaborate",
+    "collaborating",
+    "cross-functional",
+    "daily",
+    "weekly",
+    "monthly",
+    "quarterly",
+    "ensure",
+    "ensuring",
+    "including",
+    "include",
+    "includes",
+    "using",
+    "used",
+    "use",
+    "make",
+    "making",
+    "take",
+    "taking",
+    "need",
+    "needs",
+    "needed",
+    "well",
+    "also",
+    "part",
+    "etc",
+    "e.g.",
+    "eg",
+    "i.e.",
+    "ie",
+    "overview",
+    "summary",
+    "description",
+    "details",
+    "level",
+    "levels",
+    "non",
+    "per",
+    "via",
+    "re",
+    "like",
+    "new",
+    "high",
+    "wide",
+    "deep",
+    "top",
+    "best",
+    "first",
+    "last",
+    "agent",
+    "agents",
 }
 
 
 def normalize_term(term: str) -> str:
     """Normalize skill or keyword term by stripping punctuation and lowercasing."""
-    cleaned = re.sub(r"[^\w\s+#./-]", "", term.strip().lower())
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    # Singularize common plural endings for single-word skills (e.g. contracts -> contract)
+    raw = term.strip().lower()
+    cleaned = re.sub(r"^[./\-_#+]+|[./\-_#+]+$", "", raw)
+    cleaned = re.sub(r"[^\w\s+#./-]", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if cleaned.endswith("contracts"):
         cleaned = cleaned[:-1]
     return cleaned
@@ -250,18 +352,24 @@ def extract_keywords_from_job(job_text: str, candidate_vocab: set[str] | None = 
                 extracted.add(skill)
 
     # 2. Extract acronyms / compound tokens (e.g. CI/CD, AWS, SEO, PMP)
-    raw_tokens = re.findall(r"\b[a-zA-Z0-9+#./-]{2,15}\b", job_text)
+    # 2. Extract acronyms / compound tokens (e.g. CI/CD, AWS, SEO, Wagmi, Viem)
+    raw_tokens = re.findall(r"[a-zA-Z0-9+#./-]{2,25}", job_text)
     for token in raw_tokens:
         tok_norm = normalize_term(token)
-        if "/" in token or token.isupper() or (candidate_vocab and tok_norm in candidate_vocab):
-            if tok_norm and tok_norm not in STOP_WORDS and len(tok_norm) > 1:
+        if tok_norm and tok_norm not in STOP_WORDS and len(tok_norm) > 1 and not tok_norm.isdigit():
+            if "/" in token or token.isupper() or (candidate_vocab and tok_norm in candidate_vocab):
                 extracted.add(tok_norm)
+        if "/" in token or "," in token:
+            for sub in re.split(r"[/,]+", token):
+                sub_norm = normalize_term(sub)
+                if sub_norm and sub_norm not in STOP_WORDS and len(sub_norm) > 1 and not sub_norm.isdigit():
+                    extracted.add(sub_norm)
 
     # 3. Extract word tokens (length >= 3)
-    words = re.findall(r"\b[a-zA-Z0-9+#./-]{3,20}\b", job_text)
+    words = re.findall(r"\b[a-zA-Z0-9+#.-]{3,20}\b", job_text)
     for w in words:
         w_norm = normalize_term(w)
-        if w_norm and w_norm not in STOP_WORDS and len(w_norm) > 2:
+        if w_norm and w_norm not in STOP_WORDS and len(w_norm) > 2 and not w_norm.isdigit():
             if candidate_vocab is None or w_norm in candidate_vocab:
                 extracted.add(w_norm)
 

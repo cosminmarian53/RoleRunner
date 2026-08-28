@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class ExportFormat(StrEnum):
@@ -65,10 +65,16 @@ class GeneratedCV(BaseModel):
 class CVScoreRequest(BaseModel):
     """Request to score existing CV markdown against a job description."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    markdown_content: str
-    job_description: str
+    markdown_content: str = Field(
+        default="",
+        validation_alias=AliasChoices("markdown_content", "markdown"),
+    )
+    job_description: str = Field(
+        default="",
+        validation_alias=AliasChoices("job_description", "description"),
+    )
 
 
 class CVExportResponse(BaseModel):
