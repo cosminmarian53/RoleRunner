@@ -162,7 +162,26 @@ class ProfileService:
             elif not profile.personal_info.name and not profile.summary and not profile.skills:
                 warnings.append("Only limited structured profile data could be inferred from the text.")
 
-        # 4. Merge if requested
+        # 4. GUARANTEED CONTACT SAFETY NET:
+        # Fill any missing personal_info fields with deterministic regex extraction
+        deterministic_info = extract_personal_info(sanitize_resume_text(text), text)
+        if profile.personal_info:
+            if not profile.personal_info.name and deterministic_info.name:
+                profile.personal_info.name = deterministic_info.name
+            if not profile.personal_info.email and deterministic_info.email:
+                profile.personal_info.email = deterministic_info.email
+            if not profile.personal_info.phone and deterministic_info.phone:
+                profile.personal_info.phone = deterministic_info.phone
+            if not profile.personal_info.linkedin and deterministic_info.linkedin:
+                profile.personal_info.linkedin = deterministic_info.linkedin
+            if not profile.personal_info.github and deterministic_info.github:
+                profile.personal_info.github = deterministic_info.github
+            if not profile.personal_info.portfolio and deterministic_info.portfolio:
+                profile.personal_info.portfolio = deterministic_info.portfolio
+            if not profile.personal_info.location and deterministic_info.location:
+                profile.personal_info.location = deterministic_info.location
+
+        # 5. Merge if requested
         if merge_existing:
             existing = await self.get_profile()
             profile = merge_profiles(existing, profile)
@@ -319,74 +338,87 @@ def sanitize_resume_text(text: str) -> str:
 
 def extract_personal_info(text_clean: str, raw_original: str) -> PersonalInfo:
     """Extract contact, links, location, and name with hyphen/space repairs."""
+    combined_text = f"{text_clean}\n{raw_original}"
     raw_lines = [item_line.strip() for item_line in text_clean.splitlines() if item_line.strip()]
 
-    # Extract email
+    # 1. Extract email (supports standard, mailto:, and spaced out emails)
     email = ""
-    m_email = EMAIL_RE.search(text_clean)
+    m_email = re.search(
+        r"(?:mailto:)?([a-zA-Z0-9_.+-]+\s*@\s*[a-zA-Z0-9-]+\s*\.\s*[a-zA-Z0-9.-]+)",
+        combined_text,
+    )
     if m_email:
-        email = m_email.group(0).strip()
+        email = re.sub(r"\s+", "", m_email.group(1)).strip(".,;")
 
-    # Extract phone
+    # 2. Extract phone (supports international +40 ..., +1 ..., spaced hyphens)
     phone = ""
-    m_phone = PHONE_RE.search(text_clean)
+    m_phone = re.search(
+        r"(?:(?:\+|00)\d{1,3}[\s.-]*)?(?:\(?\d{2,4}\)?[\s.-]*)?\d{3,4}[\s.-]*\d{3,4}(?:[\s.-]*\d{1,4})?",
+        combined_text,
+    )
     if m_phone:
-        phone = re.sub(r"\s+", " ", m_phone.group(0)).strip(" \t-•,")
+        cand = m_phone.group(0).strip(" \t-•,")
+        digits = re.sub(r"\D", "", cand)
+        # Avoid matching standalone years (like 2020-2024)
+        if len(digits) >= 8 and not re.match(r"^(19|20)\d{2}(-(19|20)\d{2})?$", cand):
+            phone = re.sub(r"\s*-\s*", "-", re.sub(r"\s+", " ", cand))
 
-    # Extract LinkedIn (reconstruct spaced hyphens e.g. 'cosmin -lavric -827126331')
+    # 3. Extract LinkedIn (reconstruct spaced hyphens e.g. 'cosmin -lavric -827126331')
     linkedin = ""
-    m_li = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9_\-\s]+)", raw_original, re.IGNORECASE)
+    m_li = re.search(
+        r"(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9_\-%]+(?:\s*-\s*[a-zA-Z0-9_\-%]+)*)",
+        combined_text,
+        re.IGNORECASE,
+    )
     if m_li:
         raw_slug = m_li.group(1).split("•")[0].split("|")[0].split("\n")[0].strip()
-        joined = re.sub(r"\s*-\s*", "-", " ".join(raw_slug.split()))
-        slug = joined.split()[0].rstrip("/")
+        slug = re.sub(r"\s*-\s*", "-", raw_slug).strip().rstrip("/")
         linkedin = f"https://linkedin.com/in/{slug}"
 
-    # Extract GitHub
+    # 4. Extract GitHub
     github = ""
-    m_gh = re.search(r"(?:https?://)?(?:www\.)?github\.com/([a-zA-Z0-9_\-\s]+)", raw_original, re.IGNORECASE)
+    m_gh = re.search(
+        r"(?:https?://)?(?:www\.)?github\.com/([a-zA-Z0-9_\-]+(?:\s*-\s*[a-zA-Z0-9_\-]+)*)",
+        combined_text,
+        re.IGNORECASE,
+    )
     if m_gh:
         raw_slug = m_gh.group(1).split("•")[0].split("|")[0].split("\n")[0].strip()
-        joined = re.sub(r"\s*-\s*", "-", " ".join(raw_slug.split()))
-        slug = joined.split()[0].rstrip("/")
+        slug = re.sub(r"\s*-\s*", "-", raw_slug).strip().rstrip("/")
         github = f"https://github.com/{slug}"
 
-    # Extract Name & Location from header lines
-    name = ""
-    location = ""
-    for line in raw_lines[:8]:
-        if is_section_heading(line):
+    # 5. Extract Portfolio / custom personal website
+    portfolio = ""
+    for m in re.finditer(r"https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s,•|)]*)?", combined_text):
+        u = m.group(0).strip().rstrip(".,;")
+        if not any(
+            b in u.lower()
+            for b in [
+                "linkedin.com",
+                "github.com",
+                "twitter.com",
+                "x.com",
+                "t.me",
+                "google.com",
+                "cantina.xyz",
+                "sherlock.xyz",
+                "schema.org",
+                "coursera.org",
+            ]
+        ):
+            portfolio = u
             break
-        if email and email in line:
-            parts = line.split("•")
-            for p in parts:
-                p_clean = p.strip(" \t-•,")
-                if any(
-                    c in p_clean.lower()
-                    for c in [
-                        "romania",
-                        "brașov",
-                        "brasov",
-                        "germany",
-                        "uk",
-                        "usa",
-                        "united states",
-                        "france",
-                        "canada",
-                        "remote",
-                        "london",
-                        "berlin",
-                        "austin",
-                        "seattle",
-                        "san francisco",
-                        "new york",
-                    ]
-                ):
-                    location = p_clean
-            continue
-        if (
-            any(
-                c in line.lower()
+
+    # 6. Extract Location
+    location = ""
+    for line in raw_lines[:10]:
+        line_strip = line.strip()
+        if line_strip.startswith("#"):
+            line_strip = line_strip.lstrip("#").strip()
+        for part in re.split(r"[•|]", line_strip):
+            p_clean = part.strip(" \t-•,")
+            if any(
+                c in p_clean.lower()
                 for c in [
                     "romania",
                     "brașov",
@@ -400,22 +432,69 @@ def extract_personal_info(text_clean: str, raw_original: str) -> PersonalInfo:
                     "remote",
                     "london",
                     "berlin",
+                    "austin",
+                    "seattle",
+                    "san francisco",
+                    "new york",
+                    "eet",
+                    "utc",
+                    "est",
+                    "pst",
                 ]
-            )
-            and not location
-        ):
-            loc_part = line.split("•")[0].split("|")[0].strip(" \t-•,")
-            location = loc_part
+            ):
+                if not any(
+                    w in p_clean.lower()
+                    for w in [
+                        "university",
+                        "college",
+                        "school",
+                        "institute",
+                        "department",
+                        "company",
+                        "consultant",
+                        "developer",
+                        "engineer",
+                        "researcher",
+                        "@",
+                    ]
+                ):
+                    location = p_clean
+                    break
+        if location:
+            break
+
+    # 7. Extract Name from top header lines
+    name = ""
+    for line in raw_lines[:6]:
+        line_clean = line.strip()
+        if line_clean.startswith("#"):
+            line_clean = line_clean.lstrip("#").strip()
+        if not line_clean or line_clean.startswith(("##", "http", "www", "mailto", "+", "@")):
             continue
-        if (
-            not name
-            and len(line.split()) <= 4
-            and not any(
-                w in line.lower()
-                for w in ["developer", "engineer", "researcher", "consultant", "resume", "curriculum", "vitae"]
-            )
+        if any(char in line_clean for char in ["@", "•", "|", "http"]):
+            continue
+        if len(line_clean.split()) <= 4 and not any(
+            w in line_clean.lower()
+            for w in [
+                "developer",
+                "engineer",
+                "researcher",
+                "consultant",
+                "resume",
+                "curriculum",
+                "vitae",
+                "summary",
+                "skills",
+                "experience",
+                "education",
+            ]
         ):
-            name = re.sub(r"\s+-\s+", "-", line).strip()
+            cleaned_name = re.sub(r"\s*-\s*", "-", line_clean).strip()
+            if cleaned_name.isupper():
+                name = cleaned_name.title()
+            else:
+                name = cleaned_name
+            break
 
     return PersonalInfo(
         name=name,
@@ -424,7 +503,7 @@ def extract_personal_info(text_clean: str, raw_original: str) -> PersonalInfo:
         location=location,
         linkedin=linkedin,
         github=github,
-        portfolio="",
+        portfolio=portfolio,
     )
 
 

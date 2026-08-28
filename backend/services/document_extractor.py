@@ -1,10 +1,11 @@
-"""Document text extraction service with MIME validation, size bounds, and text cleaning."""
+"""Document text extraction service with MIME validation, size bounds, and Markdown conversion."""
 
 from __future__ import annotations
 
 import logging
 import re
 from io import BytesIO
+from typing import Any
 
 from backend.config import settings
 
@@ -61,28 +62,65 @@ def detect_file_type(filename: str, content: bytes) -> str:
 
 
 def extract_text_from_pdf(content: bytes) -> str:
-    """Extract text from a PDF document with pypdf or PyPDF2 fallback."""
+    """
+    Extract text and embedded hyperlink annotations from a PDF document.
+
+    Uses pypdf to read text layout-aware streams and parse embedded link
+    annotations (/Annots, /URI, mailto:) ensuring contact links are preserved.
+    """
     try:
         try:
             from pypdf import PdfReader
         except ImportError:
-            from PyPDF2 import PdfReader  # type: ignore[no-redef]
+            from PyPDF2 import PdfReader  # type: ignore[no-redef,assignment]
 
         reader = PdfReader(BytesIO(content))
         pages_text: list[str] = []
+        embedded_links: list[str] = []
+
         for page in reader.pages:
-            page_text = page.extract_text() or ""
+            # 1. Extract embedded PDF link annotations (/Annots)
+            try:
+                annots: Any = getattr(page, "annotations", None) or []
+                for annot in annots:
+                    annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                    if isinstance(annot_obj, dict):
+                        action = annot_obj.get("/A")
+                        if isinstance(action, dict):
+                            uri = action.get("/URI")
+                            if uri:
+                                uri_str = str(uri).strip()
+                                if uri_str and uri_str not in embedded_links:
+                                    embedded_links.append(uri_str)
+            except Exception as annot_exc:
+                logger.debug("Non-fatal error reading PDF annotations: %s", annot_exc)
+
+            # 2. Extract page text
+            page_text = ""
+            try:
+                page_text = page.extract_text(extraction_mode="layout") or ""
+            except Exception:
+                page_text = page.extract_text() or ""
+
             if page_text.strip():
                 pages_text.append(page_text.strip())
+
         raw_text = "\n\n".join(pages_text)
-        return clean_extracted_text(raw_text)
+
+        # 3. Append discovered embedded annotations if present
+        if embedded_links:
+            links_block = "\n".join(f"[Link: {link_url}]" for link_url in embedded_links)
+            raw_text = f"{raw_text}\n\n{links_block}"
+
+        cleaned = clean_extracted_text(raw_text)
+        return convert_text_to_markdown_structure(cleaned)
     except Exception as exc:
         logger.error("Failed to parse PDF: %s", exc)
         raise DocumentExtractionError(f"Corrupt or unreadable PDF document: {exc}", status_code=422) from exc
 
 
 def extract_text_from_docx(content: bytes) -> str:
-    """Extract text from a DOCX document."""
+    """Extract text from a DOCX document and convert to structured markdown."""
     try:
         from docx import Document
 
@@ -94,7 +132,9 @@ def extract_text_from_docx(content: bytes) -> str:
                 row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
                 if row_text:
                     paragraphs.append(row_text)
-        return clean_extracted_text("\n\n".join(paragraphs))
+        raw_text = "\n\n".join(paragraphs)
+        cleaned = clean_extracted_text(raw_text)
+        return convert_text_to_markdown_structure(cleaned)
     except Exception as exc:
         logger.error("Failed to parse DOCX: %s", exc)
         raise DocumentExtractionError(f"Corrupt or unreadable DOCX document: {exc}", status_code=422) from exc
@@ -104,7 +144,9 @@ def extract_text_from_plain(content: bytes) -> str:
     """Extract text from plain text formats with encoding fallbacks."""
     for encoding in ("utf-8", "utf-16", "latin-1", "cp1252"):
         try:
-            return clean_extracted_text(content.decode(encoding).strip())
+            raw_text = content.decode(encoding).strip()
+            cleaned = clean_extracted_text(raw_text)
+            return convert_text_to_markdown_structure(cleaned)
         except UnicodeDecodeError:
             continue
     raise DocumentExtractionError("Could not decode document text with supported encodings.", status_code=422)
@@ -120,6 +162,59 @@ def clean_extracted_text(text: str) -> str:
     # Collapse 3+ newlines into 2
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def convert_text_to_markdown_structure(text: str) -> str:
+    """
+    Convert raw extracted document text into structured Markdown format.
+
+    - Detects section headings and transforms them to markdown headers (## Section)
+    - Normalizes bullet points into Markdown list items (- item)
+    - Preserves contact header lines
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return text
+
+    md_lines: list[str] = []
+    heading_patterns = [
+        r"^(professional\s+summary|summary|profile|about\s+me)$",
+        r"^(work\s+experience|experience|employment\s+history|career\s+history)$",
+        r"^(technical\s+skills|skills|technologies|core\s+competencies)$",
+        r"^(education|academic\s+background|education\s+&\s+certifications)$",
+        r"^(certifications|certificates|courses)$",
+        r"^(projects|notable\s+projects|selected\s+projects)$",
+        r"^(languages|spoken\s+languages)$",
+        r"^(achievements|awards|honors)$",
+    ]
+
+    for idx, line in enumerate(lines):
+        line_lower = line.lower()
+        is_heading = False
+
+        # First line is usually Candidate Name
+        if idx == 0 and len(line.split()) <= 4 and not any(w in line_lower for w in ["curriculum", "resume", "cv"]):
+            md_lines.append(f"# {line}\n")
+            continue
+
+        # Check section headings
+        for pattern in heading_patterns:
+            if re.match(pattern, line_lower):
+                md_lines.append(f"\n## {line.title()}\n")
+                is_heading = True
+                break
+
+        if is_heading:
+            continue
+
+        # Format bullet points as Markdown list items
+        if line.startswith(("•", "-", "*", "–", "—")):
+            clean_bullet = re.sub(r"^[•\-*–—]\s*", "", line).strip()
+            md_lines.append(f"- {clean_bullet}")
+        else:
+            md_lines.append(line)
+
+    return "\n".join(md_lines)
 
 
 def extract_document_text(filename: str, content: bytes) -> tuple[str, str]:

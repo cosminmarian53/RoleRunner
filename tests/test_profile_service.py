@@ -120,3 +120,32 @@ async def test_profile_service_parse_and_save_upload_pdf(in_memory_db_session: A
     assert res.profile.personal_info.name == "Carol Danvers"
     assert res.profile.personal_info.email == "carol@marvel.com"
     assert res.source_filename == "carol_resume.pdf"
+
+
+@pytest.mark.asyncio
+async def test_profile_service_extracts_complex_contact_formats(in_memory_db_session: AsyncSession) -> None:
+    session = in_memory_db_session
+    user_id = uuid4()
+    session.add(UserRecord(id=user_id, email="cosmin@test.local"))
+    await session.flush()
+
+    service = ProfileService(session, user_id)
+
+    raw_text = """
+    COSMIN -MARIAN LAVRIC
+    Offensive Security & Blockchain Researcher
+    Brașov, Romania (EET)  •  cosminlavric53@gmail.com  •  +40 749 -484-655
+    linkedin.com/in/cosmin -lavric -827126331  •  github.com/cosminmarian53
+
+    PROFESSIONAL SUMMARY
+    Passionate Cybersecurity Consultant and Offensive Security Researcher.
+    """
+
+    res = await service.parse_and_save_text(raw_text, use_ai=False)
+
+    assert res.profile.personal_info.name == "Cosmin-Marian Lavric"
+    assert res.profile.personal_info.email == "cosminlavric53@gmail.com"
+    assert "749" in res.profile.personal_info.phone and "484" in res.profile.personal_info.phone
+    assert res.profile.personal_info.linkedin == "https://linkedin.com/in/cosmin-lavric-827126331"
+    assert res.profile.personal_info.github == "https://github.com/cosminmarian53"
+    assert "Brașov, Romania" in res.profile.personal_info.location
