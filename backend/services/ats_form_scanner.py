@@ -37,6 +37,64 @@ class ApplicationPackResponse(BaseModel):
     cover_note: str = ""
 
 
+NOISE_LABELS: set[str] = {
+    "attach",
+    "enter manually",
+    "upload",
+    "upload resume",
+    "upload cv",
+    "choose file",
+    "select file",
+    "browse",
+    "drop files here",
+    "submit",
+    "submit application",
+    "back",
+    "next",
+    "drag & drop",
+    "drag and drop",
+    "or",
+    "apply with linkedin",
+    "apply with indeed",
+    "add resume",
+    "add file",
+    "delete",
+    "remove",
+}
+
+
+def extract_profile_facts(profile: CandidateProfile) -> dict[str, str]:
+    """Extract concrete candidate facts for deterministic question resolution."""
+    loc = profile.personal_info.location or ""
+    clean_loc = re.sub(r"\s*\([^\)]*\)", "", loc).strip()
+    loc_parts = [p.strip() for p in clean_loc.split(",") if p.strip()]
+
+    country = loc_parts[1] if len(loc_parts) >= 2 else (loc_parts[0] if loc_parts else "Romania")
+    city = loc_parts[0] if loc_parts else "Brasov"
+
+    # Education
+    edu = profile.education[0] if profile.education else None
+    school = edu.institution if edu and edu.institution else "Transilvania University of Brasov"
+    degree = edu.degree if edu and edu.degree else "Bachelor of Science in Electrical Engineering & Computer Science"
+    discipline = edu.details if edu and edu.details else "Computer Science / Information Technology"
+
+    # Years
+    year_str = edu.year if edu and edu.year else "2022 - 2026"
+    years = re.findall(r"\b(20\d{2})\b", year_str)
+    start_year = years[0] if len(years) >= 2 else "2022"
+    end_year = years[1] if len(years) >= 2 else (years[0] if years else "2026")
+
+    return {
+        "country": country,
+        "city": city,
+        "school": school,
+        "degree": degree,
+        "discipline": discipline,
+        "start_year": start_year,
+        "end_year": end_year,
+    }
+
+
 class ATSFormScanner:
     """Scrapes employer application pages and drafts reviewable application packs."""
 
@@ -78,12 +136,33 @@ class ATSFormScanner:
             raw_label = label_el.get_text(separator=" ", strip=True)
             # Filter out tiny or noise labels
             clean_label = re.sub(r"\s*(\*|Required|\(Optional\))\s*$", "", raw_label, flags=re.I).strip()
-            if len(clean_label) < 3 or clean_label.lower() in seen_labels:
+            clean_lower = clean_label.lower()
+
+            if len(clean_label) < 2 or clean_lower in seen_labels:
                 continue
 
-            # Check if this is a standard contact field (handled separately)
-            lower = clean_label.lower()
-            if any(k in lower for k in ["first name", "last name", "full name", "email", "phone", "resume", "cv"]):
+            # Filter out non-question UI buttons and noise labels
+            if clean_lower in NOISE_LABELS:
+                continue
+
+            # Check if this is a standard contact field (handled in standard_fields)
+            if any(
+                k in clean_lower
+                for k in [
+                    "first name",
+                    "last name",
+                    "full name",
+                    "email",
+                    "phone",
+                    "resume",
+                    "cv",
+                    "cover letter",
+                    "linkedin",
+                    "github",
+                    "portfolio",
+                    "website",
+                ]
+            ):
                 continue
 
             # Detect field type
@@ -93,7 +172,7 @@ class ATSFormScanner:
 
             options = [opt.get_text(strip=True) for opt in select.find_all("option")] if select else []
 
-            seen_labels.add(clean_label.lower())
+            seen_labels.add(clean_lower)
             fields.append(
                 ApplicationFormField(
                     field_id=f"field_{len(fields) + 1}",
@@ -107,7 +186,7 @@ class ATSFormScanner:
         if not fields:
             return self._default_standard_questions()
 
-        return fields[:12]
+        return fields[:15]
 
     def _default_standard_questions(self) -> list[ApplicationFormField]:
         """Sensible default employer questions when page is dynamic or blocked."""
@@ -151,6 +230,7 @@ class ATSFormScanner:
         """Scan apply form and generate tailored answers for every question."""
         html = await self.fetch_form_html(job_url) if job_url else ""
         custom_questions = self.parse_form_fields(html, job_url)
+        facts = extract_profile_facts(profile)
 
         # Standard contact fields prefilled from candidate profile
         p_info = profile.personal_info
@@ -177,28 +257,88 @@ class ATSFormScanner:
             f"Best regards,\n{p_info.name}"
         )
 
-        # Auto-draft answers for custom questions
+        # Smart Answer Generator for each custom question
         for q in custom_questions:
-            lbl = q.label.lower()
-            if "why" in lbl or "interest" in lbl:
+            lbl = q.label.lower().strip()
+
+            # 1. Schedule & Availability Commitments (Check early before 'major' or 'program')
+            if bool(
+                re.search(
+                    r"\b(25-29|schedule|self-paced|hours|hrs/wk|eastern|monday|friday|training program|full-time|part-time)\b",
+                    lbl,
+                )
+            ):
+                q.suggested_answer = (
+                    "Yes, I am fully available to commit to the required 25–29 hrs/week schedule between "
+                    "11am–4pm Eastern Monday through Friday for the full duration of the program."
+                )
+
+            # 2. Geographic Location Fields
+            elif lbl in ("country", "country of residence", "current country"):
+                q.suggested_answer = facts["country"]
+            elif lbl in ("location (city)", "city", "current city", "location"):
+                q.suggested_answer = facts["city"]
+
+            # 3. Work Authorization & Visa Sponsorship
+            elif "require" in lbl and ("visa" in lbl or "sponsorship" in lbl):
+                q.suggested_answer = "Yes, will require visa sponsorship."
+            elif "authorized to work" in lbl or ("legal" in lbl and "work" in lbl):
+                if "united states" in lbl or "us" in lbl:
+                    q.suggested_answer = "No, I will require visa sponsorship."
+                else:
+                    q.suggested_answer = "Yes, authorized to work."
+
+            # 4. Education & University Fields
+            elif bool(re.search(r"\b(school|university|college|institution)\b", lbl)):
+                q.suggested_answer = facts["school"]
+            elif bool(re.search(r"\b(degree|qualification)\b", lbl)):
+                q.suggested_answer = facts["degree"]
+            elif bool(re.search(r"\b(discipline|major|field of study|area of study)\b", lbl)):
+                q.suggested_answer = facts["discipline"]
+            elif bool(re.search(r"\b(start date year|start year)\b", lbl)):
+                q.suggested_answer = facts["start_year"]
+            elif bool(re.search(r"\b(end date year|graduation year|end year|grad year)\b", lbl)):
+                q.suggested_answer = facts["end_year"]
+
+            # 5. Availability & Compensation
+            elif bool(re.search(r"\b(start date|earliest start|availability|available)\b", lbl)):
+                q.suggested_answer = "Available immediately or as specified in the role timeline."
+            elif bool(re.search(r"\b(salary|compensation|hourly rate|expected rate)\b", lbl)):
+                q.suggested_answer = "Negotiable / standard range for the role."
+
+            # 6. Core Motivation & Behavioral Prompts
+            elif bool(re.search(r"\b(why|interest|interested|about us)\b", lbl)):
                 q.suggested_answer = (
                     f"I am excited about {company}'s mission and engineering approach. The opportunity to contribute "
-                    f"to the {job_title} role aligns directly with my background in software engineering, API integrations, "
-                    f"and automated testing. I thrive in fast-paced environments where software directly impacts real-world operations."
+                    f"to the {job_title} role aligns directly with my background in software engineering, full-stack development, "
+                    f"and automated testing. I thrive in high-ownership teams where code directly impacts product reliability."
                 )
-            elif "challenge" in lbl or "project" in lbl or "bug" in lbl:
+            elif bool(re.search(r"\b(challenge|project|bug|accomplishment|achievement)\b", lbl)):
                 q.suggested_answer = (
-                    "In a recent project (X-Scout), I architected an automated data pipeline processing 500+ daily data points. "
-                    "A key challenge was ensuring zero flaky test failures across concurrent ingestion flows. I solved this by implementing "
-                    "isolated Playwright browser contexts and robust exponential backoff handling, achieving a 100% test reliability rate."
+                    "In a recent project (X-Scout), I architected an automated threat-intelligence data pipeline processing 500+ daily data points. "
+                    "A key challenge was eliminating flaky test executions across concurrent browser workflows. I solved this by implementing "
+                    "isolated Playwright browser contexts with exponential retry handling, achieving 100% test scenario reliability."
                 )
-            elif "authoriz" in lbl or "sponsorship" in lbl:
-                q.suggested_answer = "Yes, authorized to work."
-            elif "start" in lbl or "date" in lbl or "availab" in lbl:
-                q.suggested_answer = "Available immediately / as specified in the role timeline."
-            elif "salary" in lbl or "compensation" in lbl:
-                q.suggested_answer = "Negotiable / Standard range for the role."
             else:
+                # 6. AI Fallback for unclassified custom employer questions
+                if use_ai and self.user_id:
+                    try:
+                        from backend.services.ai_client import ask
+
+                        prompt = f"""Draft a concise, professional, 1-2 sentence answer for this job application question.
+Candidate: {profile.personal_info.name} ({facts['degree']} at {facts['school']}, skilled in Python, TypeScript, React, SQL, Playwright).
+Target Company: {company}
+Target Role: {job_title}
+Question: {q.label}
+
+Return ONLY the direct answer text. Be concise, direct, and factual."""
+                        ai_ans = await ask(prompt, user_id=self.user_id)
+                        if ai_ans and len(ai_ans.strip()) > 3:
+                            q.suggested_answer = ai_ans.strip().strip('"')
+                            continue
+                    except Exception:
+                        pass
+
                 q.suggested_answer = (
                     f"With my background in software engineering and hands-on experience building tested, "
                     f"reliable applications, I am well-prepared to execute on {company}'s requirements."
