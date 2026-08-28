@@ -177,7 +177,7 @@ Return ONLY the final tailored Markdown document without introductory or conclud
             from backend.services.ai_client import ask
 
             ai_output = await ask(prompt, user_id=self.user_id)
-            cleaned: str = str(ai_output).strip()
+            cleaned: str = ai_output.strip()
             # Remove ```markdown blocks if present
             if cleaned.startswith("```markdown"):
                 cleaned = cleaned[len("```markdown") :].strip()
