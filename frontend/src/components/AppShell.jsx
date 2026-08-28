@@ -30,8 +30,10 @@ export default function AppShell() {
     <div className="app-shell">
       <aside className={`sidebar ${open ? "open" : ""}`}>
         <div className="brand-row">
-          <div className="brand-mark">JB</div>
-          <div><strong>Job-Bot</strong><span>Career workspace</span></div>
+          <div className="brand-mark logo-container">
+            <img src="/logo-icon.png" alt="RoleRunner Logo" className="brand-logo-img" />
+          </div>
+          <div><strong>RoleRunner</strong><span>Job hunt on autopilot</span></div>
           <button className="icon-button close-nav" aria-label="Close navigation" onClick={() => setOpen(false)}><X /></button>
         </div>
         <nav>
@@ -53,7 +55,10 @@ export default function AppShell() {
       <main className="main-content">
         <header className="mobile-header">
           <button className="icon-button" aria-label="Open navigation" onClick={() => setOpen(true)}><Menu /></button>
-          <strong>Job-Bot</strong>
+          <div className="mobile-brand">
+            <img src="/logo-icon.png" alt="RoleRunner" className="mobile-logo-img" />
+            <strong>RoleRunner</strong>
+          </div>
         </header>
         <Outlet />
       </main>

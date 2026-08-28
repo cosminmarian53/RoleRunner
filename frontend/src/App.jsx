@@ -10,10 +10,10 @@ import JobSearch from "./pages/JobSearch";
 import Profile from "./pages/Profile";
 
 export default function App() {
-  const [localSession, setLocalSession] = useState(() => sessionStorage.getItem("job-bot-session") === "local");
+  const [localSession, setLocalSession] = useState(() => sessionStorage.getItem("rolerunner-session") === "local");
 
   const continueLocally = () => {
-    sessionStorage.setItem("job-bot-session", "local");
+    sessionStorage.setItem("rolerunner-session", "local");
     setLocalSession(true);
   };
 

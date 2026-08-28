@@ -13,10 +13,12 @@ export default function Auth({ onContinue }) {
   return (
     <main className="auth-page">
       <section className="auth-panel">
-        <div className="brand-mark large">JB</div>
-        <p className="eyebrow">Job-Bot workspace</p>
+        <div className="brand-mark large logo-container">
+          <img src="/logo-icon.png" alt="RoleRunner Logo" className="auth-logo-img" />
+        </div>
+        <p className="eyebrow">RoleRunner workspace</p>
         <h1>Sign in to continue</h1>
-        <p className="muted">Use a magic link to access your private career workspace.</p>
+        <p className="muted">Your job hunt, on autopilot. Access your private workspace.</p>
         <form onSubmit={submit}>
           <label>Email address<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>
           <button className="button primary full" type="submit"><Mail size={17} /> Send magic link</button>

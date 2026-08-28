@@ -13,12 +13,12 @@ export default function Applications() {
 
   useEffect(() => {
     api("/applications").then((result) => setItems(Array.isArray(result) ? result : result?.applications || [])).catch(() => {
-      setItems(JSON.parse(localStorage.getItem("job-bot-applications") || "[]"));
+      setItems(JSON.parse(localStorage.getItem("rolerunner-applications") || "[]"));
       setNotice("Using local storage until application sync is available.");
     });
   }, []);
 
-  const persistLocal = (next) => { setItems(next); localStorage.setItem("job-bot-applications", JSON.stringify(next)); };
+  const persistLocal = (next) => { setItems(next); localStorage.setItem("rolerunner-applications", JSON.stringify(next)); };
   const add = async (event) => {
     event.preventDefault();
     try { const created = await api("/applications", { method: "POST", body: JSON.stringify(form) }); setItems((current) => [...current, created]); }
