@@ -1,9 +1,12 @@
 import {
+  BookOpen,
   Briefcase,
   Building2,
   Check,
+  CheckCircle2,
   Compass,
   Copy,
+  Globe,
   HelpCircle,
   Layers,
   Lightbulb,
@@ -11,7 +14,10 @@ import {
   MapPin,
   MessageSquare,
   Sparkles,
+  Target,
+  Trophy,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -69,14 +75,21 @@ export default function JobIntelModal({ job, onClose }) {
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] flex flex-col bg-[#111622] border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-[#111622] border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
         <header className="p-6 border-b border-slate-800 flex items-start justify-between gap-4 bg-[#0e1422]">
           <div className="space-y-1">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold">
-              <Sparkles size={13} /> AI Role Intelligence & Strategic Prep
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold">
+                <Sparkles size={13} /> AI Role Intelligence & Interview Prep Guide
+              </span>
+              {intel?.scraped_source && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-semibold">
+                  <Globe size={11} /> Live Web Scraped
+                </span>
+              )}
             </div>
             <h2 className="text-xl font-bold text-white leading-snug">{job.title}</h2>
             <p className="text-xs text-slate-400 flex items-center gap-2">
@@ -100,13 +113,13 @@ export default function JobIntelModal({ job, onClose }) {
         </header>
 
         {/* Modal Body */}
-        <div className="flex-1 p-6 overflow-y-auto space-y-5">
+        <div className="flex-1 p-6 overflow-y-auto space-y-6">
           {loading && (
             <div className="py-16 text-center space-y-3">
               <LoaderCircle className="animate-spin text-indigo-400 mx-auto" size={36} />
-              <h3 className="text-base font-bold text-white">Synthesizing Strategic Intelligence...</h3>
+              <h3 className="text-base font-bold text-white">Scraping & Processing Role Intelligence...</h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Analyzing role requirements, likely interview stages, talking points, and candidate positioning plan.
+                Gathering live company signals, building your interview study guide, improvement roadmap, and role landing playbook.
               </p>
             </div>
           )}
@@ -118,8 +131,8 @@ export default function JobIntelModal({ job, onClose }) {
           )}
 
           {!loading && intel && (
-            <div className="space-y-4">
-              {/* 1. Strategic Framing */}
+            <div className="space-y-5">
+              {/* 1. Strategic Framing Plan */}
               <section className="p-4 rounded-xl bg-gradient-to-br from-indigo-950/40 to-slate-900 border border-indigo-500/30 space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase tracking-wider">
@@ -137,7 +150,154 @@ export default function JobIntelModal({ job, onClose }) {
                 <p className="text-xs text-slate-200 leading-relaxed font-sans">{intel.framing_strategy}</p>
               </section>
 
-              {/* 2. Company & Culture Insights */}
+              {/* 2. Technical Study & Prep Guide (What to Study) */}
+              {!!intel.study_guide?.length && (
+                <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-sky-300 flex items-center gap-1.5 uppercase tracking-wider">
+                      <BookOpen size={15} className="text-sky-400" /> What to Study & Technical Prep Guide
+                    </h3>
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      {intel.study_guide.length} Key Focus Areas
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {intel.study_guide.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1.5"
+                      >
+                        <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span className="w-4 h-4 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center text-[10px]">
+                            {idx + 1}
+                          </span>
+                          {item.topic}
+                        </h4>
+                        {item.key_concepts && (
+                          <p className="text-[11px] text-slate-300 leading-normal">
+                            <span className="font-semibold text-slate-400">Concepts:</span> {item.key_concepts}
+                          </p>
+                        )}
+                        {item.practice_focus && (
+                          <p className="text-[11px] text-sky-300/90 leading-normal pt-1 border-t border-slate-800/60">
+                            <span className="font-semibold text-sky-400">Practice Focus:</span> {item.practice_focus}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 3. Suggestions on Improvements & Gap Bridging */}
+              {!!intel.improvement_suggestions?.length && (
+                <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-amber-300 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Zap size={15} className="text-amber-400" /> Profile Improvement & Alignment Suggestions
+                    </h3>
+                    <button
+                      className="text-xs text-slate-400 hover:text-white flex items-center gap-1 font-semibold"
+                      title="Copy Improvements"
+                      onClick={() =>
+                        copyToClipboard(
+                          intel.improvement_suggestions.map((s) => `• ${s}`).join("\n"),
+                          "improvements"
+                        )
+                      }
+                    >
+                      {copiedKey === "improvements" ? (
+                        <Check size={13} className="text-emerald-400" />
+                      ) : (
+                        <Copy size={13} />
+                      )}
+                      <span>{copiedKey === "improvements" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                  <ul className="space-y-2">
+                    {intel.improvement_suggestions.map((sug, idx) => (
+                      <li
+                        key={idx}
+                        className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-200"
+                      >
+                        <CheckCircle2 size={14} className="text-amber-400 mt-0.5 flex-none" />
+                        <span className="leading-relaxed">{sug}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {/* 4. How to Land the Role / Interview Playbook */}
+              {!!intel.how_to_land_role?.length && (
+                <section className="p-4 rounded-xl bg-gradient-to-br from-emerald-950/20 to-slate-900 border border-emerald-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-emerald-300 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Trophy size={15} className="text-emerald-400" /> How to Land the Role Playbook
+                    </h3>
+                    <button
+                      className="text-xs text-slate-400 hover:text-white flex items-center gap-1 font-semibold"
+                      title="Copy Playbook"
+                      onClick={() =>
+                        copyToClipboard(intel.how_to_land_role.map((step) => step).join("\n\n"), "playbook")
+                      }
+                    >
+                      {copiedKey === "playbook" ? (
+                        <Check size={13} className="text-emerald-400" />
+                      ) : (
+                        <Copy size={13} />
+                      )}
+                      <span>{copiedKey === "playbook" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {intel.how_to_land_role.map((step, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-950/70 border border-emerald-500/20 text-xs text-slate-200"
+                      >
+                        <Target size={14} className="text-emerald-400 mt-0.5 flex-none" />
+                        <span className="leading-relaxed">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 5. Likely Interview Questions & Recommended Answers */}
+              {!!intel.likely_interview_questions?.length && (
+                <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                  <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider">
+                    <HelpCircle size={15} className="text-indigo-400" /> Likely Interview Questions & Model Angles
+                  </h3>
+                  <div className="space-y-3">
+                    {intel.likely_interview_questions.map((qObj, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2 text-xs"
+                      >
+                        <div className="font-semibold text-white flex items-start gap-2">
+                          <span className="text-indigo-400 font-bold">Q{idx + 1}:</span>
+                          <span>{qObj.question}</span>
+                        </div>
+                        {qObj.why_they_ask && (
+                          <p className="text-[11px] text-slate-400 leading-normal pl-5">
+                            <span className="text-slate-500 font-medium">Why they ask:</span> {qObj.why_they_ask}
+                          </p>
+                        )}
+                        {qObj.recommended_angle && (
+                          <div className="p-2 rounded-lg bg-indigo-950/30 border border-indigo-500/20 text-[11px] text-indigo-200 leading-relaxed ml-5">
+                            <span className="font-semibold text-indigo-300">Recommended Angle:</span>{" "}
+                            {qObj.recommended_angle}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 6. Company & Culture Insights */}
               <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
                 <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider">
                   <Building2 size={15} className="text-indigo-400" /> Company & Team Insights
@@ -150,7 +310,7 @@ export default function JobIntelModal({ job, onClose }) {
                 )}
               </section>
 
-              {/* 3. Likely Interview Process Stages */}
+              {/* 7. Likely Interview Process Stages */}
               {!!intel.interview_stages?.length && (
                 <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
                   <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider">
@@ -172,7 +332,7 @@ export default function JobIntelModal({ job, onClose }) {
                 </section>
               )}
 
-              {/* 4. High-Impact Pitch Talking Points */}
+              {/* 8. High-Impact Pitch Talking Points */}
               {!!intel.talking_points?.length && (
                 <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
                   <div className="flex items-center justify-between">
@@ -205,7 +365,7 @@ export default function JobIntelModal({ job, onClose }) {
                 </section>
               )}
 
-              {/* 5. High-Leverage Questions to Ask */}
+              {/* 9. High-Leverage Questions to Ask */}
               {!!intel.questions_to_ask?.length && (
                 <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
                   <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider">
@@ -222,7 +382,7 @@ export default function JobIntelModal({ job, onClose }) {
                 </section>
               )}
 
-              {/* 6. Key Domain Skills / Technologies */}
+              {/* 10. Key Domain Skills / Technologies */}
               {!!intel.key_technologies?.length && (
                 <section className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
                   <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider">

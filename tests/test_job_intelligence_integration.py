@@ -71,6 +71,15 @@ async def test_job_intelligence_heuristic_fallback_multi_domain() -> None:
         # 6. Core Domain Tech
         assert len(res.key_technologies) >= 1
 
+        # 7. Study Guide & Technical Prep
+        assert len(res.study_guide) >= 1
+        assert len(res.study_guide[0].topic) > 3
+
+        # 8. Improvement Suggestions & How to Land Role
+        assert len(res.improvement_suggestions) >= 1
+        assert len(res.how_to_land_role) >= 1
+        assert len(res.likely_interview_questions) >= 1
+
 
 @pytest.mark.asyncio
 async def test_job_intelligence_ai_structured_generation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,6 +101,28 @@ async def test_job_intelligence_ai_structured_generation(monkeypatch: pytest.Mon
     "Initial Recruiter Screen",
     "Smart Contract Audit Practical",
     "Partner Technical Discussion"
+  ],
+  "study_guide": [
+    {
+      "topic": "Solidity Invariant Testing & Formal Verification",
+      "key_concepts": "Stateful fuzzing, Certora verification, ERC-4626 inflation vectors.",
+      "practice_focus": "Write Echidna stateful invariant tests for a reentrancy-vulnerable vault."
+    }
+  ],
+  "improvement_suggestions": [
+    "Highlight your 3rd place finish in the Kuru Contracts audit.",
+    "Add link to your public security audit portfolio."
+  ],
+  "how_to_land_role": [
+    "1. Recruiter Screen: Focus on bounty results and proactive invariant modeling.",
+    "2. Technical Audit: Walk through root-cause analysis of your recent findings."
+  ],
+  "likely_interview_questions": [
+    {
+      "question": "How do you systematically identify precision loss vulnerabilities in DeFi yield vaults?",
+      "why_they_ask": "Evaluates numerical analysis and arithmetic truncation understanding.",
+      "recommended_angle": "Explain checking rounding directions in division operations before multiplications."
+    }
   ],
   "talking_points": [
     "Highlight your 3rd place finish in the Kuru Contracts audit.",
@@ -123,6 +154,54 @@ async def test_job_intelligence_ai_structured_generation(monkeypatch: pytest.Mon
     assert "verifiable bug bounty findings" in res.framing_strategy
     assert len(res.interview_stages) == 3
     assert "Smart Contract Audit Practical" in res.interview_stages[1]
+    assert len(res.study_guide) == 1
+    assert "Invariant Testing" in res.study_guide[0].topic
+    assert len(res.improvement_suggestions) == 2
+    assert len(res.how_to_land_role) == 2
+    assert len(res.likely_interview_questions) == 1
+    assert "precision loss" in res.likely_interview_questions[0].question
     assert len(res.talking_points) == 2
     assert len(res.questions_to_ask) == 2
     assert "Foundry" in res.key_technologies
+
+
+@pytest.mark.asyncio
+async def test_job_intelligence_scrapes_live_job_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify live job posting URL is automatically scraped when description is minimal."""
+    import httpx
+
+    from backend.scrapers.http_client import SafeAsyncClient
+
+    fake_html = """
+    <html>
+      <body>
+        <main>
+          <h1>Software Engineer II - AI Agentic Systems</h1>
+          <p>Jamf is hiring a Software Engineer to architect LLM tool-calling agentic pipelines.</p>
+        </main>
+      </body>
+    </html>
+    """
+
+    async def fake_get(self, url: str, *args, **kwargs) -> httpx.Response:
+        return httpx.Response(200, text=fake_html, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(SafeAsyncClient, "get", fake_get)
+
+    service = JobIntelligenceService()
+    profile = CandidateProfile(
+        personal_info=PersonalInfo(name="Cosmin Lavric"),
+        skills={"Core": ["Python", "FastAPI", "Docker"]},
+    )
+
+    req = JobIntelligenceRequest(
+        job_title="Software Engineer II",
+        company="Jamf",
+        description="",  # Empty description to trigger web scraping
+        link="https://jamf.com/careers/ai-eng",
+    )
+
+    res = await service.generate_intelligence(req, profile)
+    assert res.scraped_source == "https://jamf.com/careers/ai-eng"
+    assert len(res.study_guide) >= 1
+    assert len(res.how_to_land_role) >= 1

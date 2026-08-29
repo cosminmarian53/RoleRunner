@@ -133,8 +133,28 @@ class JobIntelligenceRequest(BaseModel):
     link: str = ""
 
 
+class StudyTopic(BaseModel):
+    """Structured technical study and prep topic for a role."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    topic: str
+    key_concepts: str = ""
+    practice_focus: str = ""
+
+
+class InterviewQuestionGuide(BaseModel):
+    """Likely interview question with evaluation reasoning and model answer angle."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    question: str
+    why_they_ask: str = ""
+    recommended_angle: str = ""
+
+
 class JobIntelligenceResponse(BaseModel):
-    """Deep AI analysis, strategic framing, and interview process intelligence."""
+    """Deep AI analysis, interview prep guide, and role landing intelligence."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -142,8 +162,13 @@ class JobIntelligenceResponse(BaseModel):
     framing_strategy: str = ""
     company_insights: str = ""
     interview_stages: list[str] = Field(default_factory=list)
+    study_guide: list[StudyTopic] = Field(default_factory=list)
+    improvement_suggestions: list[str] = Field(default_factory=list)
+    how_to_land_role: list[str] = Field(default_factory=list)
+    likely_interview_questions: list[InterviewQuestionGuide] = Field(default_factory=list)
     talking_points: list[str] = Field(default_factory=list)
     questions_to_ask: list[str] = Field(default_factory=list)
     key_technologies: list[str] = Field(default_factory=list)
     culture_notes: str = ""
+    scraped_source: str = ""
     analyzed_at: str = Field(default_factory=lambda: datetime.now().isoformat())

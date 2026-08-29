@@ -60,6 +60,24 @@ NOISE_LABELS: set[str] = {
     "add file",
     "delete",
     "remove",
+    "subscribe",
+    "newsletter",
+    "sign up",
+    "sign up for alerts",
+    "job alerts",
+    "search",
+    "filter",
+    "get notified",
+    "stay in touch",
+    "join talent pool",
+    "join our talent network",
+    "cookie policy",
+    "terms of use",
+    "privacy policy",
+    "accept",
+    "agree",
+    "decline",
+    "manage preferences",
 }
 
 
@@ -575,15 +593,69 @@ class ATSFormScanner:
     ) -> ApplicationPackResponse:
         """Scan apply form and generate tailored answers for every question."""
         html = await self.fetch_form_html(job_url) if job_url else ""
-        custom_questions = self.parse_form_fields(html, job_url)
+        raw_custom_questions = self.parse_form_fields(html, job_url) if html else []
 
-        # Fallback to smart text parser if HTML yielded no custom questions but description has form text
-        if (not custom_questions or custom_questions == self._default_standard_questions()) and job_description:
+        # Fallback to smart text parser if HTML yielded no custom questions but description has text
+        if not raw_custom_questions and job_description:
             text_questions = self.parse_text_form(job_description)
-            if len(text_questions) >= 3:
-                custom_questions = text_questions
-            else:
-                custom_questions = self._default_standard_questions()
+            if text_questions:
+                raw_custom_questions = text_questions
+
+        # 1. Preserve all genuine custom questions from the employer page
+        custom_questions: list[ApplicationFormField] = list(raw_custom_questions)
+        master_questions = self._default_standard_questions()
+
+        existing_labels_lower = " ".join([q.label.lower() for q in raw_custom_questions])
+
+        def _is_covered_by_custom(m_label: str) -> bool:
+            lbl = m_label.lower()
+            if "why" in lbl and "interested" in lbl:
+                return any(
+                    k in existing_labels_lower for k in ["why", "interest", "fit for this role", "about yourself"]
+                )
+            if "challenging technical project" in lbl:
+                return any(k in existing_labels_lower for k in ["challenge", "difficult bug", "technical project"])
+            if "currently authorized to work" in lbl:
+                return "authorized to work" in existing_labels_lower
+            if "require visa sponsorship" in lbl:
+                return "sponsorship" in existing_labels_lower
+            if "export control" in lbl or "lawful permanent resident" in lbl:
+                return (
+                    "citizen of the united states" in existing_labels_lower
+                    or "lawful permanent resident" in existing_labels_lower
+                )
+            if "restricted country" in lbl:
+                return "restricted" in existing_labels_lower or "armenia" in existing_labels_lower
+            if "portfolio / github" in lbl:
+                return (
+                    "portfolio - website link" in existing_labels_lower or "portfolio / github" in existing_labels_lower
+                )
+            if "have you included a portfolio" in lbl:
+                return "have you included a portfolio" in existing_labels_lower
+            if "ideal start date" in lbl:
+                return "start date" in existing_labels_lower
+            if "ideal end date" in lbl:
+                return "end date" in existing_labels_lower
+            if "full-time hire" in lbl:
+                return "full-time hire" in existing_labels_lower or "full time hire" in existing_labels_lower
+            if "weekly schedule" in lbl:
+                return "weekly schedule" in existing_labels_lower or "hours/week" in existing_labels_lower
+            if "university/college" in lbl:
+                return any(k in existing_labels_lower for k in ["university", "college", "school", "degree pursuing"])
+            if "recognized industry certifications" in lbl:
+                return "certifications" in existing_labels_lower or "certification" in existing_labels_lower
+            if "prior internship" in lbl:
+                return "prior internship" in existing_labels_lower
+            if "in-person onboarding" in lbl:
+                return "onboarding" in existing_labels_lower
+            if "how did you hear" in lbl:
+                return "hear about" in existing_labels_lower
+            return False
+
+        # Add any master question not already covered on the page
+        for mq in master_questions:
+            if not _is_covered_by_custom(mq.label):
+                custom_questions.append(mq)
 
         facts = extract_profile_facts(profile)
 
