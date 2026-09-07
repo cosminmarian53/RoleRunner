@@ -82,36 +82,86 @@ NOISE_LABELS: set[str] = {
 
 
 def extract_profile_facts(profile: CandidateProfile) -> dict[str, str]:
-    """Extract concrete candidate facts for deterministic question resolution."""
+    """Extract concrete candidate facts dynamically from CandidateProfile."""
     loc = profile.personal_info.location or ""
     clean_loc = re.sub(r"\s*\([^\)]*\)", "", loc).strip()
     loc_parts = [p.strip() for p in clean_loc.split(",") if p.strip()]
 
-    country = loc_parts[1] if len(loc_parts) >= 2 else (loc_parts[0] if loc_parts else "Romania")
-    city = loc_parts[0] if loc_parts else "Brasov"
+    country = loc_parts[1] if len(loc_parts) >= 2 else (loc_parts[0] if loc_parts else "")
+    city = loc_parts[0] if loc_parts else ""
 
     # Education
     edu = profile.education[0] if profile.education else None
-    school = edu.institution if edu and edu.institution else "Transilvania University of Brasov"
-    degree = edu.degree if edu and edu.degree else "Bachelor of Science in Electrical Engineering & Computer Science"
-    discipline = edu.details if edu and edu.details else "Computer Science / Information Technology"
+    school = edu.institution if edu and edu.institution else ""
+    degree = edu.degree if edu and edu.degree else ""
+    discipline = edu.details if edu and edu.details else ""
 
     # Years
-    year_str = edu.year if edu and edu.year else "2022 - 2026"
+    year_str = edu.year if edu and edu.year else ""
     years = re.findall(r"\b(20\d{2})\b", year_str)
-    start_year = years[0] if len(years) >= 2 else "2022"
-    end_year = years[1] if len(years) >= 2 else (years[0] if years else "2026")
+    start_year = years[0] if len(years) >= 2 else (years[0] if years else "")
+    end_year = years[1] if len(years) >= 2 else (years[0] if years else "")
 
     # Certifications
     certs_list = []
     for cert in profile.certifications:
         date_str = f" ({cert.date})" if cert.date else ""
         certs_list.append(f"{cert.name} – {cert.issuer}{date_str}")
-    certs_summary = (
-        ", ".join(certs_list)
-        if certs_list
-        else "Smart Contract Security (Cyfrin, May 2025), Assembly and Formal Verification (Cyfrin, Oct 2025), Introduction to Software Engineering (IBM, Mar 2024), Blockchain Essentials (Cornell University, Oct 2024)"
+    certs_summary = ", ".join(certs_list) if certs_list else ""
+
+    # Skills summary
+    all_skills = [s for sublist in profile.skills.values() for s in sublist] if profile.skills else []
+    skills_summary = (
+        ", ".join(all_skills[:8]) if all_skills else "software engineering, system design, automated testing"
     )
+
+    # Internship / Experience
+    intern_exp = next(
+        (exp for exp in profile.experience if "intern" in exp.title.lower() or "intern" in exp.company.lower()),
+        None,
+    )
+    if intern_exp:
+        internship_company = intern_exp.company
+        internship_title = intern_exp.title
+        dur = f" ({intern_exp.duration})" if intern_exp.duration else ""
+        bullet = f": {'; '.join(intern_exp.bullets[:2])}" if intern_exp.bullets else "."
+        internship_summary = f"Yes. I completed a {intern_exp.title} at {intern_exp.company}{dur}{bullet}"
+    elif profile.experience:
+        exp = profile.experience[0]
+        internship_company = exp.company
+        internship_title = exp.title
+        dur = f" ({exp.duration})" if exp.duration else ""
+        bullet = f": {'; '.join(exp.bullets[:2])}" if exp.bullets else "."
+        internship_summary = f"I have professional experience as {exp.title} at {exp.company}{dur}{bullet}"
+    else:
+        internship_company = ""
+        internship_title = ""
+        internship_summary = "No formal prior internship, but extensive hands-on technical project experience."
+
+    # Technical Project / Accomplishment
+    if profile.projects:
+        p = profile.projects[0]
+        tech_note = f" using {p.tech}" if p.tech else ""
+        desc_note = f" {p.description}" if p.description else ""
+        project_summary = (
+            f"In a recent project ({p.name}), I architected robust technical solutions{tech_note}.{desc_note}"
+        )
+    elif profile.experience and profile.experience[0].bullets:
+        exp = profile.experience[0]
+        project_summary = f"During my work as {exp.title} at {exp.company}, a key engineering challenge I solved was: {exp.bullets[0]}"
+    else:
+        project_summary = (
+            "In recent software engineering projects, I implemented robust system architectures and automated "
+            "testing pipelines with exponential retry mechanisms, achieving high reliability across core workflows."
+        )
+
+    # Current Company / Affiliation
+    if profile.experience:
+        current_company = profile.experience[0].company
+    elif school:
+        current_company = f"{school} (Student)"
+    else:
+        current_company = "Independent Developer"
 
     return {
         "country": country,
@@ -122,6 +172,12 @@ def extract_profile_facts(profile: CandidateProfile) -> dict[str, str]:
         "start_year": start_year,
         "end_year": end_year,
         "certs_summary": certs_summary,
+        "skills_summary": skills_summary,
+        "internship_company": internship_company,
+        "internship_title": internship_title,
+        "internship_summary": internship_summary,
+        "project_summary": project_summary,
+        "current_company": current_company,
     }
 
 
@@ -670,13 +726,13 @@ class ATSFormScanner:
             "Email": p_info.email,
             "Phone": p_info.phone,
             "Current Location": p_info.location,
-            "Current Company": "Transilvania University of Brasov (Student)",
+            "Current Company": facts["current_company"],
             "LinkedIn URL": p_info.linkedin,
-            "GitHub / Portfolio": p_info.github,
+            "GitHub / Portfolio": p_info.github or p_info.portfolio,
         }
 
         # Cover note / brief intro
-        skills_summary = ", ".join(list(profile.skills.get("Tools & Technologies", []))[:5]) or "full-stack systems"
+        skills_summary = ", ".join(list(profile.skills.get("Tools & Technologies", []))[:5]) or facts["skills_summary"]
         cover_note = (
             f"Hi {company} Recruiting Team,\n\n"
             f"I'm excited to apply for the {job_title} position. With hands-on experience building reliable systems, "
@@ -691,7 +747,10 @@ class ATSFormScanner:
 
             # 1. Export Controls / ITAR / 22 C.F.R. § 120.62 / EAR Restricted Countries
             if bool(re.search(r"\b(home country listed below|restricted country)\b", lbl)):
-                q.suggested_answer = "No (Home country is Romania, which is not on the restricted list)"
+                country_note = (
+                    f"Home country is {facts['country']}, which is " if facts["country"] else "Home country is "
+                )
+                q.suggested_answer = f"No ({country_note}not on the restricted list)"
             elif bool(
                 re.search(r"\b(citizen of the united states|lawful permanent resident|asylee or refugee)\b", lbl)
             ):
@@ -702,9 +761,7 @@ class ATSFormScanner:
             # 2. Portfolio Links & Inclusion
             elif bool(re.search(r"\b(portfolio.*(?:link|website|url)|website link.*portfolio)\b", lbl)):
                 q.suggested_answer = (
-                    profile.personal_info.portfolio
-                    or profile.personal_info.github
-                    or "https://github.com/cosminmarian53/security-audit-portofolio"
+                    profile.personal_info.portfolio or profile.personal_info.github or "https://github.com"
                 )
             elif bool(re.search(r"\b(included a portfolio|include a portfolio)\b", lbl)):
                 q.suggested_answer = "Yes (Included link to portfolio and GitHub)"
@@ -717,23 +774,22 @@ class ATSFormScanner:
 
             # 4. Previous Internship Experience
             elif bool(re.search(r"\b(previous internship|prior internship|completed.*internship)\b", lbl)):
-                q.suggested_answer = (
-                    "Yes. I completed a Cybersecurity Analyst Internship at IBM Summer School (July 2025), where I designed "
-                    "and deployed an enterprise 2FA system using TOTP, QR codes, SSO, and RBAC, managed SSL/TLS certificate lifecycles, "
-                    "and conducted automated security and reliability assessments."
-                )
+                q.suggested_answer = facts["internship_summary"]
 
             # 5. Academic Standing & Junior/Senior Year
             elif bool(re.search(r"\b(junior year|senior year|graduate student|academic level|year of study)\b", lbl)):
+                school_part = f" at {facts['school']}" if facts["school"] else ""
+                end_part = f", completing degree in {facts['end_year']}" if facts["end_year"] else ""
                 q.suggested_answer = (
-                    "Yes (Entering senior year at Transilvania University of Brasov, completing degree in 2026)."
+                    f"Yes (Currently pursuing {facts['degree'] or 'academic degree'}{school_part}{end_part})."
                 )
 
             # 6. Full-time Hire & Graduation Timeline
             elif bool(
                 re.search(r"\b(when are you available for full-time|full-time hire|available for full-time)\b", lbl)
             ):
-                q.suggested_answer = "Summer 2026 (Upon graduation in 2026)"
+                end_yr = facts["end_year"] or "2026"
+                q.suggested_answer = f"Summer {end_yr} (Upon graduation in {end_yr})"
 
             # 7. Schedule & Weekly Hours Commitments
             elif bool(
@@ -766,18 +822,26 @@ class ATSFormScanner:
             ):
                 q.suggested_answer = "No"
             elif bool(re.search(r"\b(how did you hear|referral|source)\b", lbl)):
-                q.suggested_answer = "LinkedIn / Sam's Youtube"
+                q.suggested_answer = "LinkedIn / Company Careers Page"
 
             # 10. Industry Certifications & Training
             elif "cert" in lbl:
                 if "list" in lbl or q.field_type in ("textarea", "text"):
-                    q.suggested_answer = facts["certs_summary"]
+                    q.suggested_answer = (
+                        facts["certs_summary"]
+                        or "Relevant technical certifications and domain coursework available upon request."
+                    )
                 else:
-                    q.suggested_answer = "Yes"
+                    q.suggested_answer = "Yes" if facts["certs_summary"] else "Yes (Relevant technical coursework)"
             elif bool(
                 re.search(r"\b(formal training|training.*experience within cybersecurity|cybersecurity/it)\b", lbl)
             ):
-                q.suggested_answer = "Yes (B.S. in Electrical Engineering & Computer Science, Cybersecurity Analyst Internship at IBM Summer School)"
+                qual_parts = [p for p in [facts["degree"], facts["internship_title"]] if p]
+                q.suggested_answer = (
+                    f"Yes ({', '.join(qual_parts)})"
+                    if qual_parts
+                    else "Yes (Relevant technical coursework and software engineering projects)"
+                )
 
             # 11. Security Clearance
             elif bool(re.search(r"\b(security clearance|clearance level|active clearance)\b", lbl)):
@@ -793,11 +857,12 @@ class ATSFormScanner:
 
             # 10. Physical Location & Address
             elif bool(re.search(r"\b(physically located within the united states|physically located.*us)\b", lbl)):
-                q.suggested_answer = (
-                    "No (Located in Brasov, Romania; open to travel for onboarding and remote coordination)"
+                loc_note = (
+                    f"Located in {facts['city']}, {facts['country']}; " if facts["city"] and facts["country"] else ""
                 )
+                q.suggested_answer = f"No ({loc_note}open to travel for onboarding and remote coordination)"
             elif bool(re.search(r"\b(primary location during|where will you primarily be located)\b", lbl)):
-                q.suggested_answer = f"{facts['city']}, {facts['country']}"
+                q.suggested_answer = f"{facts['city']}, {facts['country']}".strip(", ") or "Available upon request"
             elif lbl in (
                 "full street address",
                 "street address",
@@ -807,19 +872,19 @@ class ATSFormScanner:
                 "postal code",
                 "zip code",
             ):
-                q.suggested_answer = f"{facts['city']}, {facts['country']}"
+                q.suggested_answer = f"{facts['city']}, {facts['country']}".strip(", ") or "Available upon request"
             elif lbl in ("country", "country of residence", "current country"):
-                q.suggested_answer = facts["country"]
+                q.suggested_answer = facts["country"] or "Available upon request"
             elif lbl in ("location (city)", "city", "current city", "location") or "what is your location" in lbl:
                 q.suggested_answer = (
                     facts["country"]
                     if any(facts["country"].lower() in opt.lower() for opt in q.options)
-                    else facts["city"]
+                    else (facts["city"] or "Available upon request")
                 )
 
             # 11. Signature Name & Date Fields
             elif lbl in ("name", "signature", "full name signature", "applicant signature"):
-                q.suggested_answer = profile.personal_info.name or "Cosmin-Marian Lavric"
+                q.suggested_answer = profile.personal_info.name or "Applicant Signature"
             elif lbl in ("date", "signature date", "today's date"):
                 import datetime
 
@@ -841,32 +906,36 @@ class ATSFormScanner:
                     lbl,
                 )
             ):
-                q.suggested_answer = f"{facts['degree']} at {facts['school']}"
+                q.suggested_answer = (
+                    f"{facts['degree']} at {facts['school']}"
+                    if facts["degree"] and facts["school"]
+                    else (facts["school"] or facts["degree"] or "Higher Education")
+                )
             elif bool(
                 re.search(
                     r"\b(your school|university name|college name|institution name|attended school|school/university)\b|^(?:school|university|college)$",
                     lbl,
                 )
             ):
-                q.suggested_answer = facts["school"]
+                q.suggested_answer = facts["school"] or "University"
             elif bool(
                 re.search(
                     r"\b(your degree|degree type|degree level|highest degree|degree earned)\b|^(?:degree|qualification)$",
                     lbl,
                 )
             ):
-                q.suggested_answer = facts["degree"]
+                q.suggested_answer = facts["degree"] or "Bachelor of Science"
             elif bool(
                 re.search(
                     r"\b(academic major|college major|undergraduate major|your major|field of study|area of study|academic discipline|major/field)\b|^(?:major|discipline)$",
                     lbl,
                 )
             ):
-                q.suggested_answer = facts["discipline"]
+                q.suggested_answer = facts["discipline"] or "Computer Science / Software Engineering"
             elif bool(re.search(r"\b(start year|start date year)\b", lbl)):
-                q.suggested_answer = facts["start_year"]
+                q.suggested_answer = facts["start_year"] or "2022"
             elif bool(re.search(r"\b(end date year|graduation year|end year|grad year|year of graduation)\b", lbl)):
-                q.suggested_answer = facts["end_year"]
+                q.suggested_answer = facts["end_year"] or "2026"
 
             # 14. Availability & Compensation
             elif bool(re.search(r"\b(start date|earliest start|availability|available)\b", lbl)):
@@ -901,11 +970,7 @@ class ATSFormScanner:
                     f"and automated testing pipelines. I thrive in high-ownership environments where robust code directly drives impact."
                 )
             elif bool(re.search(r"\b(challenge|project|bug|accomplishment|achievement)\b", lbl)):
-                q.suggested_answer = (
-                    "In a recent project (X-Scout), I architected an automated threat-intelligence data pipeline processing 500+ daily data points. "
-                    "A key challenge was eliminating flaky test executions across concurrent browser workflows. I solved this by implementing "
-                    "isolated Playwright browser contexts with exponential retry handling, achieving 100% test scenario reliability."
-                )
+                q.suggested_answer = facts["project_summary"]
             else:
                 # 13. AI Fallback for unclassified custom employer questions
                 if use_ai and self.user_id:
@@ -913,7 +978,7 @@ class ATSFormScanner:
                         from backend.services.ai_client import ask
 
                         prompt = f"""Draft a concise, professional, 1-2 sentence answer for this job application question.
-Candidate: {profile.personal_info.name} ({facts['degree']} at {facts['school']}, skilled in Python, Rust, C++, TypeScript, React, SQL, Playwright).
+Candidate: {profile.personal_info.name} ({facts['degree']} at {facts['school']}, skilled in {facts['skills_summary']}).
 Target Company: {company}
 Target Role: {job_title}
 Question: {q.label}

@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from backend.models.profile import CandidateProfile, Certification, Education, PersonalInfo
+from backend.models.profile import CandidateProfile, Certification, Education, Experience, PersonalInfo, Project
 from backend.scrapers.http_client import SafeAsyncClient
 from backend.services.ats_form_scanner import ATSFormScanner
 
@@ -315,6 +315,21 @@ async def test_universal_master_form_pack() -> None:
         certifications=[
             Certification(name="Smart Contract Security", issuer="Cyfrin", date="May 2025"),
         ],
+        experience=[
+            Experience(
+                company="IBM Summer School",
+                title="Cybersecurity Analyst Internship",
+                duration="July 2025",
+                bullets=["Designed and deployed enterprise 2FA system."],
+            )
+        ],
+        projects=[
+            Project(
+                name="X-Scout",
+                tech="Python, Playwright",
+                description="Architected automated threat-intelligence data pipeline processing 500+ daily data points.",
+            )
+        ],
     )
 
     scanner = ATSFormScanner()
@@ -409,3 +424,74 @@ async def test_jamf_job_description_does_not_extract_jd_headers_as_questions() -
     assert len(pack.custom_questions) >= 15
     ans = {q.label: q.suggested_answer for q in pack.custom_questions}
     assert "Jamf" in ans["Why are you interested in this role and company?"]
+
+
+@pytest.mark.asyncio
+async def test_ats_form_scanner_multi_tenancy_isolation() -> None:
+    """Verify ATSFormScanner cleanly derives facts from an arbitrary candidate profile without data leakage."""
+    berlin_candidate = CandidateProfile(
+        personal_info=PersonalInfo(
+            name="Alice Schmidt",
+            email="alice@berlin-tech.de",
+            location="Berlin, Germany",
+            github="https://github.com/alice-schmidt",
+        ),
+        education=[
+            Education(
+                institution="Technical University of Berlin",
+                degree="M.Sc. Computer Science",
+                year="2023 - 2025",
+                details="Distributed Systems & Formal Verification",
+            )
+        ],
+        experience=[
+            Experience(
+                company="Siemens Healthineers",
+                title="Systems Engineering Intern",
+                duration="Mar 2024 - Sep 2024",
+                bullets=["Built high-throughput telemetry pipelines in Go and Rust."],
+            )
+        ],
+        projects=[
+            Project(
+                name="Rust-Raft",
+                tech="Rust, Tokio",
+                description="Implemented a consensus engine with deterministic chaos testing.",
+            )
+        ],
+    )
+
+    scanner = ATSFormScanner()
+    pack = await scanner.generate_application_pack(
+        profile=berlin_candidate,
+        job_title="Backend Systems Engineer",
+        company="Datadog",
+        job_description="Distributed systems, telemetry, high concurrency.",
+        job_url="",
+    )
+
+    # 1. Verify standard fields
+    assert pack.standard_fields["Full Name"] == "Alice Schmidt"
+    assert pack.standard_fields["Email"] == "alice@berlin-tech.de"
+    assert pack.standard_fields["Current Location"] == "Berlin, Germany"
+    assert pack.standard_fields["Current Company"] == "Siemens Healthineers"
+    assert pack.standard_fields["GitHub / Portfolio"] == "https://github.com/alice-schmidt"
+
+    # 2. Verify questions are dynamically grounded in Alice's profile
+    ans_map = {q.label: q.suggested_answer for q in pack.custom_questions}
+    assert (
+        "Technical University of Berlin"
+        in ans_map["What university/college are you currently attending and what degree are you pursuing?"]
+    )
+    assert "Siemens Healthineers" in ans_map["Do you have prior internship or professional engineering experience?"]
+    assert "Rust-Raft" in ans_map["Describe a challenging technical project or bug you recently solved."]
+    assert "Datadog" in ans_map["Why are you interested in this role and company?"]
+
+    # 3. Assert strict multi-tenant isolation: NO hardcoded references to other profiles
+    all_answers_text = " ".join(ans_map.values()) + " " + pack.cover_note
+    assert "Transilvania" not in all_answers_text
+    assert "Brasov" not in all_answers_text
+    assert "Romania" not in all_answers_text
+    assert "IBM Summer School" not in all_answers_text
+    assert "X-Scout" not in all_answers_text
+    assert "Cyfrin" not in all_answers_text
