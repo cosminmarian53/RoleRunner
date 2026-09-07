@@ -1,15 +1,9 @@
 import {
   ArrowRight,
   BriefcaseBusiness,
-  CheckCircle2,
-  Clock,
-  FileCheck,
-  FileText,
   Lightbulb,
   Search,
-  Sparkles,
   Star,
-  UserRound,
   Wand2,
 } from "lucide-react";
 import { useState } from "react";

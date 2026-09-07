@@ -1,8 +1,5 @@
 import {
   ArrowRight,
-  BriefcaseBusiness,
-  Building2,
-  CheckCircle2,
   ExternalLink,
   Kanban,
   LoaderCircle,

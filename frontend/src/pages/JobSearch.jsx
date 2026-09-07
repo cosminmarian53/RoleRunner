@@ -1,12 +1,9 @@
 import {
-  Briefcase,
-  Building2,
   Calendar,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   ExternalLink,
-  Filter,
   Globe,
   Lightbulb,
   LoaderCircle,

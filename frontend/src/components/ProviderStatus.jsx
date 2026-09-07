@@ -7,7 +7,6 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
-  Sparkles,
   Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";

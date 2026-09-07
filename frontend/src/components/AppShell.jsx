@@ -29,7 +29,7 @@ const navigation = [
 export default function AppShell() {
   const [open, setOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const { data: agent, connected } = useSSE(eventUrl("/agent/status"));
+  const { data: agent } = useSSE(eventUrl("/agent/status"));
 
   return (
     <div className="app-shell min-h-screen bg-[#0b0f19] text-slate-100 flex flex-col md:flex-row">

@@ -11,7 +11,7 @@ import Landing from "./pages/Landing";
 import Profile from "./pages/Profile";
 
 export default function App() {
-  const [localSession, setLocalSession] = useState(() => sessionStorage.getItem("rolerunner-session") === "local");
+  const [_localSession, setLocalSession] = useState(() => sessionStorage.getItem("rolerunner-session") === "local");
   const navigate = useNavigate();
 
   const continueLocally = () => {

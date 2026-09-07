@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Compass,
   Copy,
+  Download,
   Globe,
   HelpCircle,
   Layers,
@@ -67,6 +68,70 @@ export default function JobIntelModal({ job, onClose }) {
     setTimeout(() => setCopiedKey(""), 2000);
   };
 
+  const exportStudyGuideMarkdown = () => {
+    if (!intel) return;
+    const content = `# Interview Preparation & Strategic Landing Guide
+## ${job.title} — ${job.company || "Target Company"}
+${intel.scraped_source ? `*Scraped Source:* ${intel.scraped_source}\n` : ""}
+---
+
+### 1. Role Summary
+${intel.role_summary || "N/A"}
+
+### 2. Strategic Framing Plan
+${intel.framing_strategy || "N/A"}
+
+### 3. Company & Culture Insights
+${intel.company_insights || "N/A"}
+${intel.culture_notes ? `\n*Culture Notes:* ${intel.culture_notes}\n` : ""}
+
+### 4. 5-Stage Interview Process
+${(intel.interview_stages || []).map((st) => `- ${st}`).join("\n")}
+
+### 5. Technical Study Guide
+${(intel.study_guide || [])
+  .map(
+    (sg) => `#### ${sg.topic}
+- **Key Concepts:** ${sg.key_concepts}
+- **Practice Focus:** ${sg.practice_focus}
+`
+  )
+  .join("\n")}
+
+### 6. Gap-Bridging Improvement Suggestions
+${(intel.improvement_suggestions || []).map((s) => `- ${s}`).join("\n")}
+
+### 7. How to Land This Role (Playbook)
+${(intel.how_to_land_role || []).map((step) => `- ${step}`).join("\n")}
+
+### 8. Likely Interview Questions & Recommended Answers
+${(intel.likely_interview_questions || [])
+  .map(
+    (q) => `#### Question: "${q.question}"
+- **Why They Ask:** ${q.why_they_ask}
+- **Recommended Framing:** ${q.recommended_angle}
+`
+  )
+  .join("\n")}
+
+### 9. High-Impact Talking Points
+${(intel.talking_points || []).map((tp) => `- ${tp}`).join("\n")}
+
+### 10. Senior Reverse-Interview Questions to Ask
+${(intel.questions_to_ask || []).map((q) => `- ${q}`).join("\n")}
+`;
+
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Interview_Prep_${(job.company || "Role").replace(/[^a-zA-Z0-9]/g, "_")}_${(job.title || "Guide").replace(/[^a-zA-Z0-9]/g, "_")}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   if (!job) return null;
 
   return (
@@ -103,13 +168,25 @@ export default function JobIntelModal({ job, onClose }) {
             </p>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-            aria-label="Close modal"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2 flex-none">
+            {intel && (
+              <button
+                type="button"
+                onClick={exportStudyGuideMarkdown}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
+                title="Export Interview Preparation Guide as Markdown"
+              >
+                <Download size={13} /> Export Guide (.md)
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              aria-label="Close modal"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </header>
 
         {/* Modal Body */}

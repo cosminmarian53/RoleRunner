@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  Briefcase,
   CheckCircle2,
   ChevronRight,
   FileCheck,
@@ -8,7 +7,6 @@ import {
   Globe,
   Layers,
   MessageSquare,
-  Search,
   ShieldCheck,
   Sparkles,
   Star,
