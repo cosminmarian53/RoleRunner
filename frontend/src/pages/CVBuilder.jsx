@@ -1,18 +1,15 @@
 import {
   CheckCircle2,
-  Copy,
-  Download,
-  FileCheck,
   FileText,
   LoaderCircle,
   Sparkles,
-  Star,
   Wand2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { useLocation } from "react-router-dom";
 
+import ApplicationPackSection from "../components/ApplicationPackSection";
+import CVPreviewPane from "../components/CVPreviewPane";
 import { api, download } from "../lib/api";
 
 export default function CVBuilder() {
@@ -183,7 +180,7 @@ export default function CVBuilder() {
           </div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight mt-1">Application Studio</h1>
           <p className="text-slate-400 text-sm max-w-3xl">
-            Tailor your CV with verified project deliverables and automatically draft answers for every question on the employer's application form.
+            Tailor your CV with verified project deliverables and automatically draft answers for every question on the employer&apos;s application form.
           </p>
         </div>
 
@@ -334,281 +331,29 @@ export default function CVBuilder() {
         </form>
 
         {/* Right Column: Live Document Preview OR Application Pack */}
-        {activeStep === "cv" ? (
-          <section className="lg:col-span-7 p-6 rounded-2xl bg-[#111622] border border-slate-800 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <FileCheck size={18} className="text-emerald-400" />
-                  {generated?.job_title ? `Tailored for ${generated.job_title}` : "Document Preview"}
-                </h2>
-                <p className="text-xs text-slate-400">Structured layout for applicant tracking systems</p>
-              </div>
-
-              {/* Export Toolbar */}
-              {generated?.id && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCopyMarkdown}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1 transition"
-                    title="Copy Raw Markdown"
-                  >
-                    <Copy size={13} /> {copied ? "Copied!" : "Copy"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => download(`/cv/export/${generated.id}?format=pdf`)}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
-                    title="Download High-Res PDF"
-                  >
-                    <Download size={13} /> PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => download(`/cv/export/${generated.id}?format=docx`)}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition"
-                    title="Download Word Document"
-                  >
-                    <Download size={13} /> DOCX
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Document Markdown Canvas */}
-            {generated?.markdown_content ? (
-              <div className="cv-document-sheet max-h-[700px] overflow-y-auto">
-                <ReactMarkdown>{generated.markdown_content}</ReactMarkdown>
-              </div>
-            ) : (
-              <div className="py-20 text-center space-y-3">
-                <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 text-slate-500 flex items-center justify-center mx-auto">
-                  <FileText size={24} />
-                </div>
-                <h3 className="text-base font-bold text-slate-300">Ready to Tailor Your CV</h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Fill in the job details on the left or select a job from the search tab to generate an ATS-tailored resume.
-                </p>
-              </div>
-            )}
-
-            {/* Next Step Banner */}
-            {generated && (
-              <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-950/40 to-slate-900 border border-indigo-500/20 flex items-center justify-between gap-4">
-                <div>
-                  <h4 className="text-xs font-bold text-white">Ready for Application Form?</h4>
-                  <p className="text-[11px] text-slate-400">Auto-draft answers for employer custom questions.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleScanApplicationPack}
-                  disabled={packBusy}
-                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition"
-                >
-                  {packBusy ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                  Proceed to Step 2 ➔
-                </button>
-              </div>
-            )}
-
-            {/* ATS Score Meter Panel */}
-            {generated && (
-              <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex flex-col items-center justify-center flex-none">
-                      <strong className="text-base font-extrabold">
-                        {score?.overall_score != null ? (score.overall_score / 10).toFixed(1) : "8.5"}
-                      </strong>
-                      <span className="text-[9px] uppercase font-bold text-emerald-500">/ 10 ATS</span>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white">
-                        {score?.overall_score != null
-                          ? `${score.overall_score}% Keyword Coverage`
-                          : "Strong Profile Match"}
-                      </h4>
-                      <p className="text-xs text-slate-400">
-                        {score?.overall_score != null && score.overall_score >= 70
-                          ? "High keyword alignment with target job requirements"
-                          : "Consider adding the missing target keywords below"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleScoreCV}
-                    disabled={scoreBusy}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition flex-none"
-                  >
-                    {scoreBusy ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                    Re-evaluate Score
-                  </button>
-                </div>
-
-                {/* Matched / Missing Keyword Chips */}
-                {(score?.matched_keywords?.length > 0 || score?.missing_keywords?.length > 0) && (
-                  <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                    {score.matched_keywords?.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] font-semibold text-emerald-400 mr-1">Matched:</span>
-                        {score.matched_keywords.slice(0, 8).map((kw) => (
-                          <span
-                            key={kw}
-                            className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
-                          >
-                            ✓ {kw}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {score.missing_keywords?.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] font-semibold text-amber-400 mr-1">Suggested:</span>
-                        {score.missing_keywords.slice(0, 6).map((kw) => (
-                          <span
-                            key={kw}
-                            className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300"
-                          >
-                            + {kw}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        ) : (
-          /* Step 2: Application Answers & Form Pack */
-          <section className="lg:col-span-7 p-6 rounded-2xl bg-[#111622] border border-slate-800 shadow-xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <Sparkles size={18} className="text-emerald-400" />
-                  Reviewable Application Pack
-                </h2>
-                <p className="text-xs text-slate-400">Tailored answers ready to copy-paste or submit to the employer</p>
-              </div>
-
-              {form.job_url && (
-                <a
-                  href={form.job_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1 transition"
-                >
-                  Open Apply Page ↗
-                </a>
-              )}
-            </div>
-
-            {/* Cover Note Card */}
-            {appPack?.cover_note && (
-              <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
-                    Introductory Cover Note
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(appPack.cover_note, "cover_note")}
-                    className="text-[11px] font-semibold text-slate-300 hover:text-white flex items-center gap-1"
-                  >
-                    <Copy size={12} /> {copiedField === "cover_note" ? "Copied!" : "Copy Note"}
-                  </button>
-                </div>
-                <textarea
-                  rows={4}
-                  value={appPack.cover_note}
-                  onChange={(e) => setAppPack((prev) => ({ ...prev, cover_note: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 leading-relaxed font-sans focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            )}
-
-            {/* Custom Employer Questions */}
-            <div className="space-y-4">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Application Form Questions ({appPack?.custom_questions?.length || 0})
-              </h3>
-
-              {appPack?.custom_questions?.map((q, idx) => (
-                <div key={q.field_id || idx} className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs font-bold text-slate-200">
-                      {q.label} {q.required && <span className="text-rose-400">*</span>}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(q.suggested_answer, q.field_id)}
-                      className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 flex-none"
-                    >
-                      <Copy size={12} /> {copiedField === q.field_id ? "Copied!" : "Copy"}
-                    </button>
-                  </div>
-
-                  {q.field_type === "textarea" ? (
-                    <textarea
-                      rows={3}
-                      value={q.suggested_answer}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setAppPack((prev) => {
-                          const updated = [...prev.custom_questions];
-                          updated[idx].suggested_answer = val;
-                          return { ...prev, custom_questions: updated };
-                        });
-                      }}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 leading-relaxed font-sans focus:outline-none focus:border-indigo-500"
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={q.suggested_answer}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setAppPack((prev) => {
-                          const updated = [...prev.custom_questions];
-                          updated[idx].suggested_answer = val;
-                          return { ...prev, custom_questions: updated };
-                        });
-                      }}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Standard Contact Copy Ribbon */}
-            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Quick Copy Contact Info</h4>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {Object.entries(appPack?.standard_fields || {}).map(([key, val]) => (
-                  val ? (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => copyToClipboard(val, key)}
-                      className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-left transition flex items-center justify-between"
-                    >
-                      <div className="truncate pr-1">
-                        <div className="text-[10px] text-slate-400 font-semibold">{key}</div>
-                        <div className="text-xs text-slate-200 truncate font-mono">{val}</div>
-                      </div>
-                      <Copy size={11} className="text-slate-500 flex-none" />
-                    </button>
-                  ) : null
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
+        <section className="lg:col-span-7 p-6 rounded-2xl bg-[#111622] border border-slate-800 shadow-xl space-y-4">
+          {activeStep === "cv" ? (
+            <CVPreviewPane
+              generated={generated}
+              score={score}
+              copied={copied}
+              download={download}
+              handleCopyMarkdown={handleCopyMarkdown}
+              handleScoreCV={handleScoreCV}
+              scoreBusy={scoreBusy}
+              handleScanApplicationPack={handleScanApplicationPack}
+              packBusy={packBusy}
+            />
+          ) : (
+            <ApplicationPackSection
+              appPack={appPack}
+              setAppPack={setAppPack}
+              jobUrl={form.job_url}
+              copiedField={copiedField}
+              copyToClipboard={copyToClipboard}
+            />
+          )}
+        </section>
       </div>
     </div>
   );
