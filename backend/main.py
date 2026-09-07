@@ -33,6 +33,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
+    from backend.scrapers.http_client import close_global_safe_client
+
+    try:
+        await close_global_safe_client()
+    except Exception as exc:
+        logger.warning("HTTP client pool cleanup error: %s", exc)
+
     try:
         await close_db()
     except Exception as exc:
